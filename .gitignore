@@ -1,0 +1,14 @@
+# Virtual Environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables (тут будуть твої секретні ключі від Google)
+.env
+
+# IDE files
+.vscode/
+.idea/
+service_account.json
