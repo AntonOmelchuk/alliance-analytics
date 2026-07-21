@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# We use the CSV export URL
 CSV_URL = os.getenv("SHEET_CSV_URL")
 
 def get_data_from_csv():
@@ -16,21 +15,8 @@ def get_data_from_csv():
         print(f"Error fetching data: {e}")
         return pd.DataFrame()
 
-def process_cp_points(df):
-    """Extract data specifically from column B (CP Name) and C (Attendance Points)."""
-    if df.empty:
-        return {}
-
-    df_subset = df.iloc[1:, 1:3].copy()
-    df_subset.columns = ['CP Name', 'Attendance Points']
-
-    df_subset['Attendance Points'] = pd.to_numeric(df_subset['Attendance Points'], errors='coerce')
-    df_subset = df_subset.dropna()
-
-    return df_subset.set_index('CP Name')['Attendance Points'].to_dict()
-
 def analyze_clan_data(df):
-    """Final stage: Adding full summary and top performer for frontend dashboard."""
+    """Final stage: Adding full summary, top performer, and GB/PTs Ratio from column L."""
     if df.empty:
         return {
             "pareto": [],
@@ -42,18 +28,29 @@ def analyze_clan_data(df):
             }
         }
 
-    # 1. Витягуємо дані та одразу призначаємо колонки
-    df_subset = df.iloc[1:, 1:3].copy()
-    df_subset.columns = ['cp_name', 'points']
+    # 1. Get main data: B (index 1) — cp_name, C (index 2) — points
+    # Take L (index 11) — GB/PTs Ratio
+    # Check if dataset contains enough cell (to avoid IndexError)
+    max_col_index = max(2, 11)
+    if df.shape[1] <= max_col_index:
+        # if there is no L cell in table
+        df_subset = df.iloc[1:, 1:3].copy()
+        df_subset.columns = ['cp_name', 'points']
+        df_subset['gb_pts_ratio'] = 0.0
+    else:
+        df_subset = df.iloc[:, [1, 2, 11]].copy()
+        df_subset = df_subset.iloc[1:].copy() # Remove header (1st data cell)
+        df_subset.columns = ['cp_name', 'points', 'gb_pts_ratio']
 
-    # 2. Очищуємо від порожніх значень та рядків "nan"
+    # 2. Clean from empty values and NaN rows
     df_subset = df_subset.dropna(subset=['cp_name'])
     df_subset = df_subset[df_subset['cp_name'].astype(str).str.lower() != 'nan']
 
-    # 3. Конвертуємо бали в числа
+    # 3. Convert values to numbers
     df_subset['points'] = pd.to_numeric(df_subset['points'], errors='coerce').fillna(0)
+    df_subset['gb_pts_ratio'] = pd.to_numeric(df_subset['gb_pts_ratio'], errors='coerce').fillna(0.0)
 
-    # 4. Рахуємо відсотки внеску та кумулятивну суму для Парето-кривої
+    # 4. Calculate percents for each CP and data for Pareto
     total = df_subset['points'].sum()
     df_subset['contribution_pct'] = (df_subset['points'] / total) * 100 if total > 0 else 0
 
@@ -61,18 +58,19 @@ def analyze_clan_data(df):
     df_sorted['cumulative_pct'] = df_sorted['contribution_pct'].cumsum().round(2)
     df_sorted['contribution_pct'] = df_sorted['contribution_pct'].round(2)
 
-    # Формуємо Pareto list
+    # Prepare Pareto list (with gb_pts_ratio)
     pareto_list = [
         {
             "cp_name": str(row['cp_name']),
             "points": int(row['points']),
             "contribution_pct": float(row['contribution_pct']),
-            "cumulative_pct": float(row['cumulative_pct'])
+            "cumulative_pct": float(row['cumulative_pct']),
+            "gb_pts_ratio": float(row['gb_pts_ratio'])
         }
         for _, row in df_sorted.iterrows()
     ]
 
-    # Збираємо метрики для Summary карток
+    # Take metrics for Summary cards
     avg_points = float(df_subset['points'].mean()) if not df_subset.empty else 0
     top_cp_name = pareto_list[0]["cp_name"] if pareto_list else "N/A"
 
