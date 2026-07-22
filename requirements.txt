@@ -4,3 +4,4 @@ gunicorn
 pandas
 pydantic
 requests
+python-dotenv
