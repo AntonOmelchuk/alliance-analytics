@@ -1,4 +1,5 @@
 import os
+import uuid
 import pandas as pd
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -216,7 +217,9 @@ def get_epic_data():
         total_farmed = 0
         total_shared = 0
 
-        for _, row in df_slice.iterrows():
+        all_farmed_epics = []
+
+        for idx, row in df_slice.iterrows():
             farm_date = str(row['farm_date']).strip() if pd.notna(row['farm_date']) else ""
             epic_name = str(row['epic_name']).strip()
 
@@ -228,6 +231,16 @@ def get_epic_data():
             share_date = str(row['share_date']).strip() if pd.notna(row['share_date']) else ""
 
             total_farmed += 1
+
+            # Store all epic data
+            all_farmed_epics.append({
+                "id": f"epic_{idx}_{uuid.uuid4().hex[:8]}",
+                "farm_date": farm_date,
+                "epic_name": epic_name,
+                "is_shared": is_shared,
+                "assigned_cp": cp_name if (is_shared and cp_name and cp_name.lower() != "nan") else None,
+                "share_date": share_date if is_shared else None
+            })
 
             # 1. Main statistics for each boss (breakdown)
             if epic_name not in epics_breakdown:
@@ -282,9 +295,10 @@ def get_epic_data():
                 "total_shared": total_shared,
                 "unassigned_count": len(unassigned_loot)
             },
-            "unassigned_loot": unassigned_loot, # Epics in warehouse
-            "epics_breakdown": epics_breakdown, # Epics statistics
-            "cp_distribution": cp_distribution # CP statistics
+            "unassigned_loot": unassigned_loot,  # Epics in warehouse
+            "epics_breakdown": epics_breakdown,  # Epics statistics
+            "cp_distribution": cp_distribution,  # CP statistics
+            "all_farmed_epics": all_farmed_epics # Array with all epic & date
         }
 
     except Exception as e:

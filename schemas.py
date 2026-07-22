@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 
 # ==========================================
@@ -71,11 +71,20 @@ class CPDistributionItem(BaseModel):
     epics_count_by_type: Dict[str, int]
     epics_list: List[EpicListItem]
 
+class AllFarmedEpicItem(BaseModel):
+    id: str
+    farm_date: str
+    epic_name: str
+    is_shared: bool
+    assigned_cp: Optional[str] = None
+    share_date: Optional[str] = None
+
 class EpicData(BaseModel):
     summary: EpicSummary
     unassigned_loot: List[UnassignedLootItem]
     epics_breakdown: Dict[str, EpicBreakdownItem]
     cp_distribution: List[CPDistributionItem]
+    all_farmed_epics: List[AllFarmedEpicItem]
 
 class EpicResponse(BaseModel):
     status: str = "success"
