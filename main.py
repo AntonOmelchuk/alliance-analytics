@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 import numpy as np
-from data_processor import get_data_from_csv, analyze_clan_data, get_clan_timeline_data, get_epic_data
-from schemas import ParetoResponse, TimelineResponse, EpicResponse
+from data_processor import get_data_from_csv, analyze_clan_data, get_clan_timeline_data, get_epic_data, get_summary_cards_data
+from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCardsResponse
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -44,3 +44,16 @@ def get_epics():
     epic_data = get_epic_data()
     clean_epic_data = convert_types(epic_data)
     return {"status": "success", "data": clean_epic_data}
+
+@app.get("/api/summary", response_model=SummaryCardsResponse)
+def get_summary():
+    timeline_res = get_clan_timeline_data()
+    epic_res = get_epic_data()
+    pareto_res = analyze_clan_data(get_data_from_csv())
+
+    summary_data = get_summary_cards_data(
+        timeline_res.get("timeline", []),
+        epic_res,
+        pareto_res.get("pareto", [])
+    )
+    return {"status": "success", "data": summary_data}

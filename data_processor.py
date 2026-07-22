@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -294,3 +295,72 @@ def get_epic_data():
             "epics_breakdown": {},
             "cp_distribution": []
         }
+
+# =================================
+# Callculate Data for Summary Cards
+# =================================
+def get_summary_cards_data(timeline_records, epic_data, pareto_list):
+    """
+    Calculate metrics for Summary Cards:
+    1. Total Epics Farmed & Treasury
+    2. Weekly MVP CP
+    3. Peak Event Record (max players/points)
+    4. Weekly Avg Turnout (середній онлайн за останні 7 днів)
+    """
+    if not timeline_records:
+        return {
+            "total_epics_farmed": 0,
+            "unassigned_epics": 0,
+            "weekly_mvp_cp": "N/A",
+            "peak_event_players": 0,
+            "peak_event_label": "N/A",
+            "weekly_avg_turnout": 0
+        }
+
+    # 1. Epics
+    epic_summary = epic_data.get("summary", {})
+    total_epics = epic_summary.get("total_farmed", 0)
+    unassigned_epics = epic_summary.get("unassigned_count", 0)
+
+    # 2. Peak Event Record
+    peak_record = max(timeline_records, key=lambda x: x.get("total_players", 0))
+    peak_players = peak_record.get("total_players", 0)
+    peak_label = peak_record.get("event_label", "N/A")
+
+    # 3. Find the most active CP during last 10 events
+    RECENT_EVENTS_COUNT = 10
+    recent_events = (
+        timeline_records[-RECENT_EVENTS_COUNT:]
+        if len(timeline_records) >= RECENT_EVENTS_COUNT
+        else timeline_records
+    )
+
+    # Weekly Avg Turnout
+    total_recent_players = sum(e.get("total_players", 0) for e in recent_events)
+    weekly_avg_turnout = round(total_recent_players / len(recent_events), 1) if recent_events else 0
+
+    # Weekly MVP CP
+    cp_recent_attendance = {}
+    system_keys = ["date", "action", "event_label", "total_players"]
+
+    for event in recent_events:
+        for key, val in event.items():
+            if key not in system_keys:
+                try:
+                    num_val = int(val)
+                except (ValueError, TypeError):
+                    num_val = 0
+                cp_recent_attendance[key] = cp_recent_attendance.get(key, 0) + num_val
+
+    weekly_mvp = "N/A"
+    if cp_recent_attendance:
+        weekly_mvp = max(cp_recent_attendance, key=cp_recent_attendance.get)
+
+    return {
+        "total_epics_farmed": total_epics,
+        "unassigned_epics": unassigned_epics,
+        "weekly_mvp_cp": weekly_mvp,
+        "peak_event_players": peak_players,
+        "peak_event_label": peak_label,
+        "weekly_avg_turnout": weekly_avg_turnout
+    }
