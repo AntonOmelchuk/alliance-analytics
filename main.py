@@ -48,12 +48,8 @@ def get_epics():
 @app.get("/api/summary", response_model=SummaryCardsResponse)
 def get_summary():
     timeline_res = get_clan_timeline_data()
-    epic_res = get_epic_data()
-    pareto_res = analyze_clan_data(get_data_from_csv())
 
     summary_data = get_summary_cards_data(
         timeline_res.get("timeline", []),
-        epic_res,
-        pareto_res.get("pareto", [])
     )
     return {"status": "success", "data": summary_data}
