@@ -94,12 +94,11 @@ class EpicResponse(BaseModel):
 # 1. /api/summary
 # ==========================================
 class SummaryCardsData(BaseModel):
-    total_epics_farmed: int
-    unassigned_epics: int
     weekly_mvp_cp: str
     peak_event_players: int
     peak_event_label: str
     weekly_avg_turnout: float
+    total_events: int
 
 class SummaryCardsResponse(BaseModel):
     status: str = "success"
