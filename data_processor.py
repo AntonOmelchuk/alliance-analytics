@@ -313,35 +313,32 @@ def get_epic_data():
 # =================================
 # Callculate Data for Summary Cards
 # =================================
-def get_summary_cards_data(timeline_records, epic_data, pareto_list):
+def get_summary_cards_data(timeline_records):
     """
     Calculate metrics for Summary Cards:
-    1. Total Epics Farmed & Treasury
+    1. Total Events Count
     2. Weekly MVP CP
     3. Peak Event Record (max players/points)
-    4. Weekly Avg Turnout (середній онлайн за останні 7 днів)
+    4. Weekly Avg Turnout
     """
     if not timeline_records:
         return {
-            "total_epics_farmed": 0,
-            "unassigned_epics": 0,
             "weekly_mvp_cp": "N/A",
             "peak_event_players": 0,
             "peak_event_label": "N/A",
-            "weekly_avg_turnout": 0
+            "weekly_avg_turnout": 0,
+            "total_events": 0
         }
 
-    # 1. Epics
-    epic_summary = epic_data.get("summary", {})
-    total_epics = epic_summary.get("total_farmed", 0)
-    unassigned_epics = epic_summary.get("unassigned_count", 0)
+    # Total Events Count
+    total_events = len(timeline_records)
 
-    # 2. Peak Event Record
+    # Peak Event Record
     peak_record = max(timeline_records, key=lambda x: x.get("total_players", 0))
     peak_players = peak_record.get("total_players", 0)
     peak_label = peak_record.get("event_label", "N/A")
 
-    # 3. Find the most active CP during last 10 events
+    # Find the most active CP during last 10 events
     RECENT_EVENTS_COUNT = 10
     recent_events = (
         timeline_records[-RECENT_EVENTS_COUNT:]
@@ -371,10 +368,9 @@ def get_summary_cards_data(timeline_records, epic_data, pareto_list):
         weekly_mvp = max(cp_recent_attendance, key=cp_recent_attendance.get)
 
     return {
-        "total_epics_farmed": total_epics,
-        "unassigned_epics": unassigned_epics,
         "weekly_mvp_cp": weekly_mvp,
         "peak_event_players": peak_players,
         "peak_event_label": peak_label,
-        "weekly_avg_turnout": weekly_avg_turnout
+        "weekly_avg_turnout": weekly_avg_turnout,
+        "total_events": total_events
     }
