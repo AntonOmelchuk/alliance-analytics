@@ -49,24 +49,29 @@ class EpicSummary(BaseModel):
     total_farmed: int
     total_shared: int
     unassigned_count: int
+    total_value_gb: int
 
 class UnassignedLootItem(BaseModel):
     farm_date: str
     epic_name: str
+    price_gb: Optional[int] = 0
 
 class EpicBreakdownItem(BaseModel):
     total: int
     shared: int
     unassigned: int
+    unit_price_gb: Optional[int] = 0
 
 class EpicListItem(BaseModel):
     epic_name: str
     farm_date: str
     share_date: str
+    price_gb: Optional[int] = 0
 
 class CPDistributionItem(BaseModel):
     cp_name: str
     total_epics: int
+    total_gb: int
     last_share_date: str
     epics_count_by_type: Dict[str, int]
     epics_list: List[EpicListItem]
@@ -78,6 +83,7 @@ class AllFarmedEpicItem(BaseModel):
     is_shared: bool
     assigned_cp: Optional[str] = None
     share_date: Optional[str] = None
+    price_gb: Optional[int] = 0
 
 class EpicData(BaseModel):
     summary: EpicSummary
@@ -85,6 +91,7 @@ class EpicData(BaseModel):
     epics_breakdown: Dict[str, EpicBreakdownItem]
     cp_distribution: List[CPDistributionItem]
     all_farmed_epics: List[AllFarmedEpicItem]
+    prices: Optional[Dict[str, int]] = {}
 
 class EpicResponse(BaseModel):
     status: str = "success"

@@ -1,14 +1,29 @@
 import os
 import uuid
 import pandas as pd
+import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
 
+DEFAULT_EPIC_PRICES = {
+    "Core": 7,
+    "Orfen": 15,
+    "QA": 45,
+    "Queen Ant": 45,
+    "Zaken": 50,
+    "Tezza": 72,
+    "Frintezza": 72,
+    "Baium": 100,
+    "Antharas": 110,
+    "Valakas": 200,
+}
+
 CSV_URL = os.getenv("SHEET_CSV_URL")
 TIME_SERIES_CSV_URL = os.getenv("TIME_SERIES_CSV_URL")
 EPIC_CSV_URL = os.getenv("EPIC_CSV_URL")
+FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL")
 
 def get_data_from_csv():
     """Fetch CSV data directly using pandas."""
@@ -178,6 +193,21 @@ def get_clan_timeline_data():
 # ===========================
 # Get Historical Epic Data
 # ===========================
+def fetch_epic_prices():
+    """
+    Get Epic Price from Firebase Database
+    """
+    try:
+        firebase_url = f"{FIREBASE_DATABASE_URL}/epicPrices.json"
+        response = requests.get(firebase_url, timeout=5)
+
+        if response.status_code == 200 and response.json():
+            return response.json()
+    except Exception as e:
+        print(f"Warning: Failed to fetch prices from Firebase, using defaults. Error: {e}")
+
+    return DEFAULT_EPIC_PRICES
+
 def get_epic_data():
     """
     Fetch and process Epic Boss drops and distribution data.
@@ -202,6 +232,9 @@ def get_epic_data():
                 "cp_distribution": []
             }
 
+        # Get Epic Prices
+        epic_prices = fetch_epic_prices()
+
         # Take first 5 cells (A, B, C, D, E)
         df_slice = df.iloc[:, :5].copy()
         df_slice.columns = ['farm_date', 'epic_name', 'is_shared', 'cp_name', 'share_date']
@@ -216,6 +249,7 @@ def get_epic_data():
 
         total_farmed = 0
         total_shared = 0
+        total_value_gb = 0 # Total epic convetred to GBs
 
         all_farmed_epics = []
 
@@ -232,6 +266,9 @@ def get_epic_data():
 
             total_farmed += 1
 
+            # Get price for specific epic
+            epic_price = epic_prices.get(epic_name, 0)
+
             # Store all epic data
             all_farmed_epics.append({
                 "id": f"epic_{idx}_{uuid.uuid4().hex[:8]}",
@@ -239,7 +276,8 @@ def get_epic_data():
                 "epic_name": epic_name,
                 "is_shared": is_shared,
                 "assigned_cp": cp_name if (is_shared and cp_name and cp_name.lower() != "nan") else None,
-                "share_date": share_date if is_shared else None
+                "share_date": share_date if is_shared else None,
+                "price_gb": epic_price
             })
 
             # 1. Main statistics for each boss (breakdown)
@@ -250,6 +288,7 @@ def get_epic_data():
 
             if is_shared:
                 total_shared += 1
+                total_value_gb += epic_price
                 epics_breakdown[epic_name]["shared"] += 1
 
                 # 2. Group by CP
@@ -258,19 +297,22 @@ def get_epic_data():
                         cp_dict[cp_name] = {
                             "cp_name": cp_name,
                             "total_epics": 0,
+                            "total_gb": 0,
                             "last_share_date": share_date,
                             "epics_list": [],
                             "epics_count_by_type": {}
                         }
 
                     cp_dict[cp_name]["total_epics"] += 1
+                    cp_dict[cp_name]["total_gb"] += epic_price
                     cp_dict[cp_name]["last_share_date"] = share_date # Last date update
 
                     # Detailed list of shared epics
                     cp_dict[cp_name]["epics_list"].append({
                         "epic_name": epic_name,
                         "farm_date": farm_date,
-                        "share_date": share_date
+                        "share_date": share_date,
+                        "price_gb": epic_price
                     })
 
                     # Count epics for this CP (e.x. {"QueenAnt": 3, "Valakas": 1})
@@ -282,7 +324,8 @@ def get_epic_data():
                 epics_breakdown[epic_name]["unassigned"] += 1
                 unassigned_loot.append({
                     "farm_date": farm_date,
-                    "epic_name": epic_name
+                    "epic_name": epic_name,
+                    "price_gb": epic_price
                 })
 
         # Convert cp_dict to serted array (from CP with more epics to CP with less epics)
@@ -293,18 +336,20 @@ def get_epic_data():
             "summary": {
                 "total_farmed": total_farmed,
                 "total_shared": total_shared,
-                "unassigned_count": len(unassigned_loot)
+                "unassigned_count": len(unassigned_loot),
+                "total_value_gb": total_value_gb
             },
-            "unassigned_loot": unassigned_loot,  # Epics in warehouse
-            "epics_breakdown": epics_breakdown,  # Epics statistics
-            "cp_distribution": cp_distribution,  # CP statistics
-            "all_farmed_epics": all_farmed_epics # Array with all epic & date
+            "unassigned_loot": unassigned_loot,   # Epics in warehouse
+            "epics_breakdown": epics_breakdown,   # Epics statistics
+            "cp_distribution": cp_distribution,   # CP statistics
+            "all_farmed_epics": all_farmed_epics, # Array with all epic & date
+            "prices": epic_prices                 # Constant data with epic prices
         }
 
     except Exception as e:
         print(f"Error fetching epic data: {e}")
         return {
-            "summary": {"total_farmed": 0, "total_shared": 0, "unassigned_count": 0},
+            "summary": {"total_farmed": 0, "total_shared": 0, "unassigned_count": 0, "total_value_gb": 0},
             "unassigned_loot": [],
             "epics_breakdown": {},
             "cp_distribution": []
