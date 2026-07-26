@@ -5,3 +5,5 @@ pandas
 pydantic
 requests
 python-dotenv
+firebase-admin
+apscheduler
