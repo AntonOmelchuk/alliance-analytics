@@ -125,6 +125,7 @@ class PushSubscriptionSchema(BaseModel):
     endpoint: str
     keys: PushKeys
     alerts: Dict[str, AlertSettings] = Field(default_factory=dict) # {"zaken": {"leadTimeMinutes": 30}}
+    lang: Optional[str] = "en"
 
     class Config:
         json_schema_extra = {
