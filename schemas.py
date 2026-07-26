@@ -2,7 +2,7 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 
 # ==========================================
-# 1. /api/cp-stats
+# /api/cp-stats
 # ==========================================
 class ParetoItem(BaseModel):
     cp_name: str
@@ -27,7 +27,7 @@ class ParetoResponse(BaseModel):
 
 
 # ==========================================
-# 2. /api/timeline
+# /api/timeline
 # ==========================================
 class CPSnapshotItem(BaseModel):
     cp_name: str
@@ -43,7 +43,7 @@ class TimelineResponse(BaseModel):
 
 
 # ==========================================
-# 3 /api/epics
+# /api/epics
 # ==========================================
 class EpicSummary(BaseModel):
     total_farmed: int
@@ -98,7 +98,7 @@ class EpicResponse(BaseModel):
     data: EpicData
 
 # ==========================================
-# 1. /api/summary
+# /api/summary
 # ==========================================
 class SummaryCardsData(BaseModel):
     weekly_mvp_cp: str
@@ -110,3 +110,33 @@ class SummaryCardsData(BaseModel):
 class SummaryCardsResponse(BaseModel):
     status: str = "success"
     data: SummaryCardsData
+
+# ==========================================
+# /api/push
+# ==========================================
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+class AlertSettings(BaseModel):
+    leadTimeMinutes: int = Field(default=30, ge=5, le=60) # 10, 30, 60 хв
+
+class PushSubscriptionSchema(BaseModel):
+    endpoint: str
+    keys: PushKeys
+    alerts: Dict[str, AlertSettings] = Field(default_factory=dict) # {"zaken": {"leadTimeMinutes": 30}}
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+                "keys": {
+                    "p256dh": "BIP...",
+                    "auth": "17X..."
+                },
+                "alerts": {
+                    "zaken": {"leadTimeMinutes": 30},
+                    "Capture The Base": {"leadTimeMinutes": 10}
+                }
+            }
+        }
