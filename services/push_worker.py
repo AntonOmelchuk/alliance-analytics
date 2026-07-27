@@ -1,48 +1,47 @@
 import os
 import json
+from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
 from pywebpush import webpush, WebPushException
 from firebase_admin import db
 
 PVP_EVENTS = [
-    {"name": "Multi Team Battle", "times": ["02:00", "10:00", "18:00"], "type": "mtb" },
-    {"name": "Capture The Base", "times": ["04:00", "12:00", "20:00"], "type": "ctb" },
-    {"name": "Epic Boss Challenge", "times": ["08:00", "16:00", "00:00"], "type": "ebc" },
-    {"name": "Death Match", "times": ["06:00", "14:00", "22:00"], "type": "dm" },
+    {"name": "Multi Team Battle", "times": ["02:00", "10:00", "18:00"], "type": "mtb"},
+    {"name": "Capture The Base", "times": ["04:00", "12:00", "20:00"], "type": "ctb"},
+    {"name": "Epic Boss Challenge", "times": ["08:00", "16:00", "00:00"], "type": "ebc"},
+    {"name": "Death Match", "times": ["06:00", "14:00", "22:00"], "type": "dm"},
 ]
 
 EVENT_EMOJIS = {
-    "siege": "🏰",      # Siege
-    "ch": "🛡️",         # Clan Hall
-    "mtb": "⚔️",        # Multi Team Battle
-    "ctb": "🚩",        # Capture The Base
-    "ebc": "🐲",        # Epic Boss Challenge
-    "dm": "☠️",         # Death Match
-    # Epic Bosses
-    "qa": "🐜",         # Queen Ant
-    "core": "⚙️",       # Core
-    "orfen": "🕸️",      # Orfen
-    "zaken": "🏴‍☠️",      # Zaken
-    "tezza": "🎻",      # Frintezza
-    "baium": "👑",      # Baium
-    "antharas": "🐉",   # Antharas
-    "valakas": "🔥",     # Valakas
+    "siege": "🏰",
+    "ch": "🛡️",
+    "mtb": "⚔️",
+    "ctb": "🚩",
+    "ebc": "🐲",
+    "dm": "☠️",
+    "qa": "🐜",
+    "core": "⚙️",
+    "orfen": "🕸️",
+    "zaken": "🏴‍☠️",
+    "tezza": "🎻",
+    "baium": "👑",
+    "antharas": "🐉",
+    "valakas": "🔥",
 }
 
 NOTIFICATIONS_I18N = {
     "en": {
-        "title": "⚡ Reminder: {event_name}",
+        "title": "{emoji} Reminder: {event_name}",
         "body": "Event starts in {minutes} minutes!",
     },
     "ua": {
-        "title": "⚡ Нагадування: {event_name}",
+        "title": "{emoji} Нагадування: {event_name}",
         "body": "Подія розпочнеться через {minutes} хв!",
     },
 }
 
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
-VAPID_CLAIMS = os.getenv("VAPID_CLAIMS")
+VAPID_CLAIMS_SUB = os.getenv("VAPID_MAILTO", "mailto:tohaomelchuk@gmail.com")
 
 def get_event_emoji(event_type: str) -> str:
     return EVENT_EMOJIS.get(event_type, "⚡")
@@ -50,7 +49,6 @@ def get_event_emoji(event_type: str) -> str:
 def get_notification_text(lang: str, event_name: str, minutes: int, event_type: str = ""):
     lang_code = "ua" if str(lang).lower() in ["ua", "uk"] else "en"
     translations = NOTIFICATIONS_I18N[lang_code]
-
     emoji = get_event_emoji(event_type)
 
     title = translations["title"].format(emoji=emoji, event_name=event_name)
@@ -67,18 +65,62 @@ def remove_invalid_subscription(sub_key: str):
 
 def send_notification(sub_key: str, sub_data: dict, title: str, body: str, event_id: str):
     try:
-        payload = json.dumps({"title": title, "body": body, "eventId": event_id})
+        if isinstance(sub_data, str):
+            sub_data = json.loads(sub_data)
+
+        endpoint = sub_data.get("endpoint")
+        keys = sub_data.get("keys")
+
+        if isinstance(keys, str):
+            keys = json.loads(keys)
+
+        if not endpoint or not keys or not isinstance(keys, dict):
+            print(f"⚠️ Missing or invalid endpoint/keys for {sub_key}")
+            return
+
+        parsed_url = urlparse(endpoint)
+        aud_origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+        vapid_claims = {
+            "sub": VAPID_CLAIMS_SUB,
+            "aud": aud_origin
+        }
+
+        payload = json.dumps({
+            "title": title,
+            "body": body,
+            "eventId": event_id
+        })
+
+        headers = {
+            "Urgency": "high",
+            "TTL": "300"
+        }
+
         webpush(
-            subscription_info={"endpoint": sub_data["endpoint"], "keys": sub_data["keys"]},
+            subscription_info={
+                "endpoint": endpoint,
+                "keys": {
+                    "p256dh": keys.get("p256dh"),
+                    "auth": keys.get("auth")
+                }
+            },
             data=payload,
             vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims=VAPID_CLAIMS,
+            vapid_claims=vapid_claims,
+            headers=headers,
             ttl=300
         )
         print(f"✅ Push sent for event '{event_id}' -> target: {sub_key[:10]}...")
+
     except WebPushException as ex:
-        if ex.response and ex.response.status_code in [404, 410]:
+        print(f"❌ WebPushException for {sub_key}: {ex}")
+
+        if ex.response and ex.response.status_code in [400, 403, 404, 410]:
             remove_invalid_subscription(sub_key)
+    except Exception as err:
+        print(f"Failed to send notification to {sub_key}: {err}")
+
 
 async def check_and_send_push_notifications():
     now_utc = datetime.now(timezone.utc)
@@ -92,7 +134,6 @@ async def check_and_send_push_notifications():
 
     events_schedule = {}
 
-    # Process events from Firebase RTDB (Bosses / Sieges / Clan Halls)
     if isinstance(events_ref, dict):
         events_iterator = events_ref.items()
     elif isinstance(events_ref, list):
@@ -112,7 +153,6 @@ async def check_and_send_push_notifications():
                 "type": event_data.get("type", "")
             }
 
-    # Process recurring daily PvP events
     for event in PVP_EVENTS:
         event_name = event["name"]
         event_type = event["type"]
@@ -131,14 +171,23 @@ async def check_and_send_push_notifications():
                 "type": event_type
             }
 
-    # Check alert conditions
+    sent_tracker = set()
+
     for sub_key, sub_data in subs_ref.items():
+        if not isinstance(sub_data, dict):
+            continue
+
+        endpoint = sub_data.get("endpoint")
         alerts = sub_data.get("alerts", {})
-        # Get language (default = en)
         user_lang = sub_data.get("lang", "en")
 
         for event_key, alert_info in alerts.items():
             if event_key in events_schedule:
+                dedup_key = f"{endpoint}_{event_key}"
+
+                if dedup_key in sent_tracker:
+                    continue
+
                 event = events_schedule[event_key]
                 respawn_ts = event["timestamp"]
                 lead_time_min = alert_info.get("leadTimeMinutes", 30)
@@ -161,3 +210,5 @@ async def check_and_send_push_notifications():
                         body=body,
                         event_id=event_key
                     )
+
+                    sent_tracker.add(dedup_key)

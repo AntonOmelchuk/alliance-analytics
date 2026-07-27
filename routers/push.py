@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from firebase_admin import db
 from schemas import PushSubscriptionSchema
 from pydantic import BaseModel
-from pywebpush import webpush, WebPushException
+from pywebpush import WebPushException
 from services.push_worker import send_notification
 
 router = APIRouter(prefix="/api/push", tags=["Push Notifications"])
@@ -15,7 +15,6 @@ def get_subscription_key(endpoint: str) -> str:
 
 @router.post("/subscribe")
 async def subscribe_to_push(data: PushSubscriptionSchema):
-    # Enforce limit of 5 alerts
     if len(data.alerts) > 5:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -29,9 +28,9 @@ async def subscribe_to_push(data: PushSubscriptionSchema):
         "endpoint": data.endpoint,
         "keys": data.keys.model_dump(),
         "alerts": {k: v.model_dump() for k, v in data.alerts.items()},
-        "lang": data.lang # ua | en
+        "lang": data.lang
     }
-
+    print("payload lang:", payload["lang"])
     ref.set(payload)
     return {"status": "ok", "message": "Subscription saved successfully"}
 
@@ -42,11 +41,6 @@ async def unsubscribe_push(endpoint: str):
     ref.delete()
     return {"status": "ok", "message": "Subscription removed"}
 
-
-
-# =======================
-# Test Push Notifications
-# =======================
 class BroadcastSchema(BaseModel):
     title: str
     body: str
@@ -69,24 +63,29 @@ async def send_broadcast_push(data: BroadcastSchema):
     sent_count = 0
     failed_count = 0
 
-    for sub_key, sub_data in subs_ref.items():
+    if isinstance(subs_ref, dict):
+        items = subs_ref.items()
+    elif isinstance(subs_ref, list):
+        items = [(str(idx), val) for idx, val in enumerate(subs_ref) if val]
+    else:
+        items = []
+
+    for sub_key, sub_data in items:
         try:
-            # Get subscription data
+            if not isinstance(sub_data, dict):
+                failed_count += 1
+                continue
+
             subscription_info = sub_data.get("subscription") or sub_data
 
             send_notification(
-                sub_key=sub_key,
+                sub_key=str(sub_key),
                 sub_data=subscription_info,
                 title=data.title,
                 body=data.body,
                 event_id="admin_broadcast"
             )
             sent_count += 1
-        except WebPushException as ex:
-            print(f"WebPush failed for {sub_key}: {ex}")
-            if ex.response and ex.response.status_code in [404, 410]:
-                db.reference(f"push_subscriptions/{sub_key}").delete()
-            failed_count += 1
         except Exception as err:
             print(f"Unexpected error for {sub_key}: {err}")
             failed_count += 1
