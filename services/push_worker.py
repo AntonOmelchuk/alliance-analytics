@@ -142,7 +142,7 @@ async def check_and_send_push_notifications():
 
     events_schedule = {}
 
-    # Parse Firebase events
+    # 1. Parse Firebase Epic Bosses (One-time dynamic events)
     if isinstance(events_ref, dict):
         events_iterator = events_ref.items()
     elif isinstance(events_ref, list):
@@ -157,7 +157,7 @@ async def check_and_send_push_notifications():
         if respawn_ts:
             try:
                 ts_val = int(respawn_ts)
-                # If timestamp (< 10_000_000_000), convert to ms
+                # Convert seconds to milliseconds if timestamp is 10-digit
                 if ts_val < 10000000000:
                     ts_val *= 1000
 
@@ -165,12 +165,13 @@ async def check_and_send_push_notifications():
                 events_schedule[key] = {
                     "title": event_data.get("name") or event_data.get("title") or key,
                     "timestamp": ts_val,
-                    "type": event_data.get("type", "")
+                    "type": event_data.get("type", ""),
+                    "is_pvp": False  # One-time Epic Boss event
                 }
             except ValueError:
                 continue
 
-    # Parse PVP_EVENTS
+    # 2. Parse PVP_EVENTS (Recurring daily events)
     for event in PVP_EVENTS:
         event_name = event["name"]
         event_type = event["type"]
@@ -185,13 +186,16 @@ async def check_and_send_push_notifications():
             ts_ms = int(event_dt.timestamp() * 1000)
 
             payload = {
-                "title": event_name,
+                "title": f"{event_name} ({t_str})",
                 "timestamp": ts_ms,
-                "type": event_type
+                "type": event_type,
+                "is_pvp": True  # Recurring daily PVP event
             }
 
+            # Map full key with time (e.g. "Capture The Base-12:00")
             events_schedule[f"{event_name}-{t_str}"] = payload
 
+            # Fallback for base event key without time
             if event_name not in events_schedule or ts_ms < events_schedule[event_name]["timestamp"]:
                 events_schedule[event_name] = payload
 
@@ -215,16 +219,24 @@ async def check_and_send_push_notifications():
 
         print(f"\n🔍 [Sub: {sub_key[:12]}...] Subscribed alerts count: {len(alerts)}")
 
-        for event_key, alert_info in alerts.items():
+        # Create a static list of keys to safely iterate while potentially deleting keys
+        alert_keys = list(alerts.keys())
+
+        for event_key in alert_keys:
+            alert_info = alerts[event_key]
+
             if event_key in events_schedule:
-                dedup_key = f"{endpoint}_{event_key}"
-
-                if dedup_key in sent_tracker:
-                    print(f"   ⏩ Skipping '{event_key}' (Already sent in this run)")
-                    continue
-
                 event = events_schedule[event_key]
                 respawn_ts = event["timestamp"]
+                is_pvp = event.get("is_pvp", False)
+
+                # Deduplicate by unique endpoint + target event timestamp
+                dedup_key = f"{endpoint}_{respawn_ts}"
+
+                if dedup_key in sent_tracker:
+                    print(f"   ⏩ Skipping duplicate push for '{event_key}' to sub {sub_key[:8]}")
+                    continue
+
                 lead_time_min = alert_info.get("leadTimeMinutes", 30)
 
                 diff_seconds = (respawn_ts - current_timestamp_ms) / 1000
@@ -232,6 +244,7 @@ async def check_and_send_push_notifications():
 
                 print(f"   👉 Alert '{event_key}': target lead={lead_time_min}m | current diff={diff_minutes}m ({diff_seconds:.1f}s)")
 
+                # Check window: ±35 seconds around target time
                 target_seconds = lead_time_min * 60
                 is_time_to_send = abs(diff_seconds - target_seconds) <= 35
 
@@ -246,6 +259,7 @@ async def check_and_send_push_notifications():
                         event_type=event.get("type", "")
                     )
 
+                    # 1. Dispatch WebPush notification
                     send_notification(
                         sub_key=sub_key,
                         sub_data=sub_data,
@@ -255,6 +269,17 @@ async def check_and_send_push_notifications():
                     )
 
                     sent_tracker.add(dedup_key)
+
+                    # 2. Cleanup: Remove alert if it's a one-time Epic Boss event
+                    if not is_pvp:
+                        try:
+                            alert_ref = db.reference(f"push_subscriptions/{sub_key}/alerts/{event_key}")
+                            alert_ref.delete()
+                            print(f"   🧹 Removed one-time Epic alert '{event_key}' from Firebase for sub {sub_key[:8]}")
+                        except Exception as del_err:
+                            print(f"   ❌ Failed to remove Epic alert '{event_key}' from Firebase: {del_err}")
+                    else:
+                        print(f"   🔄 Retained recurring PVP alert '{event_key}' in Firebase for future events.")
             else:
                 print(f"   ❓ Alert '{event_key}' configured by user, but NOT found in active events_schedule")
 
