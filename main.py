@@ -93,6 +93,6 @@ def get_summary():
 
 
 
-@app.get("/api/ping", methods=["GET", "HEAD"])
+@app.api_route("/api/ping", methods=["GET", "HEAD"])
 def ping():
     return {"status": "ok", "message": "Backend is awake!"}
