@@ -90,3 +90,9 @@ def get_summary():
         timeline_res.get("timeline", []),
     )
     return {"status": "success", "data": summary_data}
+
+
+
+@app.get("/api/ping")
+def ping():
+    return {"status": "ok", "message": "Backend is awake!"}

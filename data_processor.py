@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import pandas as pd
 import requests
@@ -190,9 +191,9 @@ def get_clan_timeline_data():
         print(f"Error fetching timeline data: {e}")
         return {"current_snapshot": [], "timeline": []}
 
-# ===========================
-# Get Historical Epic Data
-# ===========================
+# ======================================
+# Get Epic Prices & Historical Epic Data
+# ======================================
 def fetch_epic_prices():
     """
     Get Epic Price from Firebase Database
@@ -207,6 +208,7 @@ def fetch_epic_prices():
         print(f"Warning: Failed to fetch prices from Firebase, using defaults. Error: {e}")
 
     return DEFAULT_EPIC_PRICES
+
 
 def get_epic_data():
     """
@@ -239,9 +241,15 @@ def get_epic_data():
         df_slice = df.iloc[:, :5].copy()
         df_slice.columns = ['farm_date', 'epic_name', 'is_shared', 'cp_name', 'share_date']
 
-        # Remove spaces in epic name
+        # Remove empty epic_name
         df_slice = df_slice.dropna(subset=['epic_name'])
         df_slice = df_slice[df_slice['epic_name'].astype(str).str.strip() != ""]
+
+        # -------------------------------------------------------------
+        # 🔍 ФІЛЬТР ДАТИ: Перевіряємо формат дати в колонці A (наприклад "28-Jul" або "8-Jul")
+        # RegEx: ^\d{1,2}-[A-Za-z]{3}$
+        # -------------------------------------------------------------
+        date_pattern = re.compile(r'^\d{1,2}-[A-Za-z]{3}$', re.IGNORECASE)
 
         unassigned_loot = []
         epics_breakdown = {}
@@ -249,17 +257,22 @@ def get_epic_data():
 
         total_farmed = 0
         total_shared = 0
-        total_value_gb = 0 # Total epic convetred to GBs
+        total_value_gb = 0 # Total epic converted to GBs
 
         all_farmed_epics = []
 
         for idx, row in df_slice.iterrows():
             farm_date = str(row['farm_date']).strip() if pd.notna(row['farm_date']) else ""
+
+            # Якщо дата порожня або НЕ відповідає шаблону "DD-Mon" (наприклад "28-Jul") — ПРОПУСКАЄМО
+            if not farm_date or not date_pattern.match(farm_date):
+                continue
+
             epic_name = str(row['epic_name']).strip()
 
             # Handle Shared checkbox (can be TRUE/False, "TRUE", "True", True, or 1)
             raw_shared = str(row['is_shared']).strip().upper() if pd.notna(row['is_shared']) else "FALSE"
-            is_shared = raw_shared in ["TRUE", "1", "YES", "TRUE"]
+            is_shared = raw_shared in ["TRUE", "1", "YES"]
 
             cp_name = str(row['cp_name']).strip() if pd.notna(row['cp_name']) else ""
             share_date = str(row['share_date']).strip() if pd.notna(row['share_date']) else ""
@@ -305,7 +318,7 @@ def get_epic_data():
 
                     cp_dict[cp_name]["total_epics"] += 1
                     cp_dict[cp_name]["total_gb"] += epic_price
-                    cp_dict[cp_name]["last_share_date"] = share_date # Last date update
+                    cp_dict[cp_name]["last_share_date"] = share_date
 
                     # Detailed list of shared epics
                     cp_dict[cp_name]["epics_list"].append({
@@ -328,7 +341,7 @@ def get_epic_data():
                     "price_gb": epic_price
                 })
 
-        # Convert cp_dict to serted array (from CP with more epics to CP with less epics)
+        # Convert cp_dict to sorted array
         cp_distribution = list(cp_dict.values())
         cp_distribution.sort(key=lambda x: x["total_epics"], reverse=True)
 

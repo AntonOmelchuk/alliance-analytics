@@ -123,17 +123,26 @@ def send_notification(sub_key: str, sub_data: dict, title: str, body: str, event
 
 
 async def check_and_send_push_notifications():
+    print("\n⏰ --- [CRON WORKER RUN] Checking Push Notifications ---")
     now_utc = datetime.now(timezone.utc)
     current_timestamp_ms = int(now_utc.timestamp() * 1000)
 
-    events_ref = db.reference("regroups/events").get() or {}
-    subs_ref = db.reference("push_subscriptions").get() or {}
+    print(f"🕒 Current UTC Time: {now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} | MS: {current_timestamp_ms}")
+
+    try:
+        events_ref = db.reference("regroups/events").get() or {}
+        subs_ref = db.reference("push_subscriptions").get() or {}
+    except Exception as e:
+        print(f"❌ [WORKER ERROR] Failed to fetch data from Firebase: {e}")
+        return
 
     if not subs_ref:
+        print("⚠️ [WORKER WARN] No active subscriptions found in Firebase. Exiting worker.")
         return
 
     events_schedule = {}
 
+    # Parse Firebase events
     if isinstance(events_ref, dict):
         events_iterator = events_ref.items()
     elif isinstance(events_ref, list):
@@ -153,12 +162,15 @@ async def check_and_send_push_notifications():
                 "type": event_data.get("type", "")
             }
 
+    # Parse PVP_EVENTS
     for event in PVP_EVENTS:
         event_name = event["name"]
         event_type = event["type"]
         upcoming_timestamps = []
         for t_str in event["times"]:
             hours, minutes = map(int, t_str.split(":"))
+
+            # Гарантуємо використання UTC для створення дати
             event_dt = now_utc.replace(hour=hours, minute=minutes, second=0, microsecond=0)
             if event_dt < now_utc:
                 event_dt += timedelta(days=1)
@@ -171,29 +183,52 @@ async def check_and_send_push_notifications():
                 "type": event_type
             }
 
+    print(f"📋 Loaded {len(events_schedule)} scheduled events:")
+    for ev_k, ev_v in events_schedule.items():
+        ev_dt_str = datetime.fromtimestamp(ev_v['timestamp'] / 1000, tz=timezone.utc).strftime('%H:%M:%S UTC')
+        diff_min = round((ev_v['timestamp'] - current_timestamp_ms) / 60000)
+        print(f"   • [{ev_k}] '{ev_v['title']}' at {ev_dt_str} (in {diff_min} mins)")
+
     sent_tracker = set()
+    total_subs = len(subs_ref)
+    print(f"\n📱 Processing {total_subs} subscription(s)...")
 
     for sub_key, sub_data in subs_ref.items():
         if not isinstance(sub_data, dict):
+            print(f"⚠️ Invalid sub_data type for key {sub_key}")
             continue
 
-        endpoint = sub_data.get("endpoint")
+        endpoint = sub_data.get("endpoint", "")
         alerts = sub_data.get("alerts", {})
         user_lang = sub_data.get("lang", "en")
+
+        print(f"\n🔍 [Sub: {sub_key[:12]}...] Subscribed alerts count: {len(alerts)}")
 
         for event_key, alert_info in alerts.items():
             if event_key in events_schedule:
                 dedup_key = f"{endpoint}_{event_key}"
 
                 if dedup_key in sent_tracker:
+                    print(f"   ⏩ Skipping '{event_key}' (Already sent in this run)")
                     continue
 
                 event = events_schedule[event_key]
                 respawn_ts = event["timestamp"]
                 lead_time_min = alert_info.get("leadTimeMinutes", 30)
-                diff_minutes = round((respawn_ts - current_timestamp_ms) / (1000 * 60))
 
-                if diff_minutes == lead_time_min:
+                # Обчислюємо різницю в секундах
+                diff_seconds = (respawn_ts - current_timestamp_ms) / 1000
+                diff_minutes = round(diff_seconds / 60)
+
+                print(f"   👉 Alert '{event_key}': target lead={lead_time_min}m | current diff={diff_minutes}m ({diff_seconds:.1f}s)")
+
+                # 💡 ФІКС ЧАСУ: Перевіряємо за допомогою діапазону в секундах (± 35 секунд)
+                # Це захищає від затримок запусків воркера
+                target_seconds = lead_time_min * 60
+                is_time_to_send = abs(diff_seconds - target_seconds) <= 35
+
+                if is_time_to_send:
+                    print(f"   🚀 MATCH! Sending push for '{event_key}' (Lead: {lead_time_min}m)...")
                     event_title = event["title"]
 
                     title, body = get_notification_text(
@@ -212,3 +247,7 @@ async def check_and_send_push_notifications():
                     )
 
                     sent_tracker.add(dedup_key)
+            else:
+                print(f"   ❓ Alert '{event_key}' configured by user, but NOT found in active events_schedule")
+
+    print("\n✅ --- [CRON WORKER COMPLETE] ---")
