@@ -37,7 +37,7 @@ async def subscribe_to_push(data: PushSubscriptionSchema):
         "alerts": {k: v.model_dump() for k, v in data.alerts.items()},
         "lang": data.lang
     }
-    
+
     print(f"[DEBUG] Writing payload to Firebase path 'push_subscriptions/{sub_key}'...")
     try:
         ref.set(payload)
@@ -52,10 +52,10 @@ async def subscribe_to_push(data: PushSubscriptionSchema):
 async def unsubscribe_push(endpoint: str):
     print("\n--- [DEBUG] DELETE /api/push/unsubscribe ---")
     print(f"[DEBUG] Unsubscribing endpoint: {endpoint[:40]}...")
-    
+
     sub_key = get_subscription_key(endpoint)
     ref = db.reference(f"push_subscriptions/{sub_key}")
-    
+
     try:
         ref.delete()
         print(f"[DEBUG SUCCESS] Deleted sub_key '{sub_key}' from Firebase.")
