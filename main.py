@@ -42,7 +42,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "https://eternal-respawn.netlify.app", "https://dev--eternal-respawn.netlify.app"],
+    allow_origins=["*", "https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -93,6 +93,6 @@ def get_summary():
 
 
 
-@app.get("/api/ping")
+@app.get("/api/ping", methods=["GET", "HEAD"])
 def ping():
     return {"status": "ok", "message": "Backend is awake!"}
