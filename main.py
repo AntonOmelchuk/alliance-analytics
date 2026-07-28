@@ -1,20 +1,58 @@
+import os
+import firebase_admin
+from firebase_admin import credentials
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 from data_processor import get_data_from_csv, analyze_clan_data, get_clan_timeline_data, get_epic_data, get_summary_cards_data
 from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCardsResponse
+from routers import push
+from services.push_worker import check_and_send_push_notifications
 
-from fastapi.middleware.cors import CORSMiddleware
+# ====================
+#  FIREBASE & SCHEDULER
+# ====================
+FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL")
+FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
 
-app = FastAPI()
+if not firebase_admin._apps:
+    cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+    firebase_admin.initialize_app(cred, {
+        "databaseURL": FIREBASE_DATABASE_URL
+    })
+
+scheduler = AsyncIOScheduler()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Runs the push worker every 1 minute
+    scheduler.add_job(check_and_send_push_notifications, 'interval', minutes=1)
+    scheduler.start()
+    print("🚀 Push Notification Worker started successfully!")
+    yield
+    scheduler.shutdown()
+
+# ====================
+#   APP INITIALIZATION (ЕДИНИЙ ЕКЗЕМПЛЯР)
+# ====================
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://eternal-respawn.netlify.app", "https://dev--eternal-respawn.netlify.app"],
+    allow_origins=["*", "https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
+app.include_router(push.router)
+
+# ====================
+#      ROUTES
+# ====================
 def convert_types(obj):
     if isinstance(obj, (np.int64, np.int32)):
         return int(obj)
@@ -48,8 +86,13 @@ def get_epics():
 @app.get("/api/summary", response_model=SummaryCardsResponse)
 def get_summary():
     timeline_res = get_clan_timeline_data()
-
     summary_data = get_summary_cards_data(
         timeline_res.get("timeline", []),
     )
     return {"status": "success", "data": summary_data}
+
+
+
+@app.api_route("/api/ping", methods=["GET", "HEAD"])
+def ping():
+    return {"status": "ok", "message": "Backend is awake!"}
