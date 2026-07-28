@@ -43,6 +43,9 @@ NOTIFICATIONS_I18N = {
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_CLAIMS_SUB = os.getenv("VAPID_MAILTO", "mailto:tohaomelchuk@gmail.com")
 
+# Global tracker for deduplication across worker execution cycles
+SENT_TRACKER = set()
+
 def get_event_emoji(event_type: str) -> str:
     return EVENT_EMOJIS.get(event_type, "⚡")
 
@@ -123,7 +126,13 @@ def send_notification(sub_key: str, sub_data: dict, title: str, body: str, event
 
 
 async def check_and_send_push_notifications():
+    global SENT_TRACKER
     print("\n⏰ --- [CRON WORKER RUN] Checking Push Notifications ---")
+
+    # Clear memory cache if it grows too large
+    if len(SENT_TRACKER) > 2000:
+        SENT_TRACKER.clear()
+
     now_utc = datetime.now(timezone.utc)
     current_timestamp_ms = int(now_utc.timestamp() * 1000)
 
@@ -142,7 +151,7 @@ async def check_and_send_push_notifications():
 
     events_schedule = {}
 
-    # 1. Parse Firebase Epic Bosses (One-time dynamic events)
+    # 1. Parse Firebase Dynamic Events (Epic Bosses, Sieges, Clan Halls)
     if isinstance(events_ref, dict):
         events_iterator = events_ref.items()
     elif isinstance(events_ref, list):
@@ -161,17 +170,38 @@ async def check_and_send_push_notifications():
                 if ts_val < 10000000000:
                     ts_val *= 1000
 
-                key = event_data.get("id") or event_data.get("name") or event_id
-                events_schedule[key] = {
-                    "title": event_data.get("name") or event_data.get("title") or key,
+                # Determine correct title for notifications
+                title_val = (
+                    event_data.get("event") or 
+                    event_data.get("name") or 
+                    event_data.get("title") or 
+                    event_id
+                )
+
+                payload = {
+                    "title": title_val,
                     "timestamp": ts_val,
                     "type": event_data.get("type", ""),
-                    "is_pvp": False  # One-time Epic Boss event
+                    "is_pvp": False  # Dynamic event (auto-deletes after push)
                 }
+
+                # Map primary ID (e.g. "ch-4")
+                if event_data.get("id"):
+                    events_schedule[event_data["id"]] = payload
+
+                # Map event name aliases (e.g. "Fortress of the Dead", "Bandit Stronghold")
+                if event_data.get("event"):
+                    events_schedule[event_data["event"]] = payload
+                if event_data.get("name"):
+                    events_schedule[event_data["name"]] = payload
+
+                # Fallback to dictionary key
+                events_schedule[str(event_id)] = payload
+
             except ValueError:
                 continue
 
-    # 2. Parse PVP_EVENTS (Recurring daily events)
+    # 2. Parse PVP_EVENTS (Recurring daily events - UTC strictly)
     for event in PVP_EVENTS:
         event_name = event["name"]
         event_type = event["type"]
@@ -205,7 +235,6 @@ async def check_and_send_push_notifications():
         diff_min = round((ev_v['timestamp'] - current_timestamp_ms) / 60000)
         print(f"   • [{ev_k}] '{ev_v['title']}' at {ev_dt_str} (in {diff_min} mins)")
 
-    sent_tracker = set()
     total_subs = len(subs_ref)
     print(f"\n📱 Processing {total_subs} subscription(s)...")
 
@@ -233,7 +262,7 @@ async def check_and_send_push_notifications():
                 # Deduplicate by unique endpoint + target event timestamp
                 dedup_key = f"{endpoint}_{respawn_ts}"
 
-                if dedup_key in sent_tracker:
+                if dedup_key in SENT_TRACKER:
                     print(f"   ⏩ Skipping duplicate push for '{event_key}' to sub {sub_key[:8]}")
                     continue
 
@@ -244,9 +273,9 @@ async def check_and_send_push_notifications():
 
                 print(f"   👉 Alert '{event_key}': target lead={lead_time_min}m | current diff={diff_minutes}m ({diff_seconds:.1f}s)")
 
-                # Check window: ±35 seconds around target time
+                # Target window: from 3 minutes late (-180s) up to 1 minute early (+60s)
                 target_seconds = lead_time_min * 60
-                is_time_to_send = abs(diff_seconds - target_seconds) <= 35
+                is_time_to_send = -180 <= (target_seconds - diff_seconds) <= 60
 
                 if is_time_to_send:
                     print(f"   🚀 MATCH! Sending push for '{event_key}' (Lead: {lead_time_min}m)...")
@@ -268,16 +297,16 @@ async def check_and_send_push_notifications():
                         event_id=event_key
                     )
 
-                    sent_tracker.add(dedup_key)
+                    SENT_TRACKER.add(dedup_key)
 
-                    # 2. Cleanup: Remove alert if it's a one-time Epic Boss event
+                    # 2. Cleanup: Remove alert if it's a dynamic event (Epic Boss, Siege, Clan Hall)
                     if not is_pvp:
                         try:
                             alert_ref = db.reference(f"push_subscriptions/{sub_key}/alerts/{event_key}")
                             alert_ref.delete()
-                            print(f"   🧹 Removed one-time Epic alert '{event_key}' from Firebase for sub {sub_key[:8]}")
+                            print(f"   🧹 Removed dynamic alert '{event_key}' from Firebase for sub {sub_key[:8]}")
                         except Exception as del_err:
-                            print(f"   ❌ Failed to remove Epic alert '{event_key}' from Firebase: {del_err}")
+                            print(f"   ❌ Failed to remove dynamic alert '{event_key}' from Firebase: {del_err}")
                     else:
                         print(f"   🔄 Retained recurring PVP alert '{event_key}' in Firebase for future events.")
             else:
