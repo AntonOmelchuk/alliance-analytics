@@ -155,37 +155,49 @@ async def check_and_send_push_notifications():
             continue
         respawn_ts = event_data.get("respawnTimestamp")
         if respawn_ts:
-            key = event_data.get("id") or event_data.get("name") or event_id
-            events_schedule[key] = {
-                "title": event_data.get("name") or event_data.get("title") or key,
-                "timestamp": int(respawn_ts),
-                "type": event_data.get("type", "")
-            }
+            try:
+                ts_val = int(respawn_ts)
+                # If timestamp (< 10_000_000_000), convert to ms
+                if ts_val < 10000000000:
+                    ts_val *= 1000
+
+                key = event_data.get("id") or event_data.get("name") or event_id
+                events_schedule[key] = {
+                    "title": event_data.get("name") or event_data.get("title") or key,
+                    "timestamp": ts_val,
+                    "type": event_data.get("type", "")
+                }
+            except ValueError:
+                continue
 
     # Parse PVP_EVENTS
     for event in PVP_EVENTS:
         event_name = event["name"]
         event_type = event["type"]
-        upcoming_timestamps = []
+
         for t_str in event["times"]:
             hours, minutes = map(int, t_str.split(":"))
 
-            # Гарантуємо використання UTC для створення дати
             event_dt = now_utc.replace(hour=hours, minute=minutes, second=0, microsecond=0)
             if event_dt < now_utc:
                 event_dt += timedelta(days=1)
-            upcoming_timestamps.append(int(event_dt.timestamp() * 1000))
 
-        if upcoming_timestamps:
-            events_schedule[event_name] = {
+            ts_ms = int(event_dt.timestamp() * 1000)
+
+            payload = {
                 "title": event_name,
-                "timestamp": min(upcoming_timestamps),
+                "timestamp": ts_ms,
                 "type": event_type
             }
 
+            events_schedule[f"{event_name}-{t_str}"] = payload
+
+            if event_name not in events_schedule or ts_ms < events_schedule[event_name]["timestamp"]:
+                events_schedule[event_name] = payload
+
     print(f"📋 Loaded {len(events_schedule)} scheduled events:")
     for ev_k, ev_v in events_schedule.items():
-        ev_dt_str = datetime.fromtimestamp(ev_v['timestamp'] / 1000, tz=timezone.utc).strftime('%H:%M:%S UTC')
+        ev_dt_str = datetime.fromtimestamp(ev_v['timestamp'] / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         diff_min = round((ev_v['timestamp'] - current_timestamp_ms) / 60000)
         print(f"   • [{ev_k}] '{ev_v['title']}' at {ev_dt_str} (in {diff_min} mins)")
 
@@ -195,7 +207,6 @@ async def check_and_send_push_notifications():
 
     for sub_key, sub_data in subs_ref.items():
         if not isinstance(sub_data, dict):
-            print(f"⚠️ Invalid sub_data type for key {sub_key}")
             continue
 
         endpoint = sub_data.get("endpoint", "")
@@ -216,14 +227,11 @@ async def check_and_send_push_notifications():
                 respawn_ts = event["timestamp"]
                 lead_time_min = alert_info.get("leadTimeMinutes", 30)
 
-                # Обчислюємо різницю в секундах
                 diff_seconds = (respawn_ts - current_timestamp_ms) / 1000
                 diff_minutes = round(diff_seconds / 60)
 
                 print(f"   👉 Alert '{event_key}': target lead={lead_time_min}m | current diff={diff_minutes}m ({diff_seconds:.1f}s)")
 
-                # 💡 ФІКС ЧАСУ: Перевіряємо за допомогою діапазону в секундах (± 35 секунд)
-                # Це захищає від затримок запусків воркера
                 target_seconds = lead_time_min * 60
                 is_time_to_send = abs(diff_seconds - target_seconds) <= 35
 
