@@ -36,6 +36,50 @@ def get_data_from_csv():
         return pd.DataFrame()
 
 # ===========================
+# Get CP List
+# ===========================
+def get_cp_list():
+    """
+    Fetch CP list from Google Sheets CSV starting from Column B (index 1), Row 3 (index 2).
+    Returns a list of unique, cleaned CP records.
+    """
+    try:
+        if not CSV_URL:
+            print("Error: SHEET_CSV_URL is not set in environment variables.")
+            return []
+
+        # Read CSV without setting header to access raw row/column indices
+        df = pd.read_csv(CSV_URL, header=None)
+
+        if df.empty or df.shape[1] < 2:
+            return []
+
+        # Slice starting from Row 3 (index 2) and take Column B (index 1)
+        cp_column = df.iloc[2:, 1]
+
+        # Clean from empty / NaN values and whitespace
+        cp_list = []
+        seen_names = set()
+
+        for idx, val in enumerate(cp_column):
+            if pd.notna(val):
+                name_str = str(val).strip()
+                # Exclude empty strings and 'nan'
+                if name_str and name_str.lower() != "nan" and name_str not in seen_names:
+                    seen_names.add(name_str)
+                    cp_list.append({
+                        "id": f"cp_{idx + 1}_{uuid.uuid4().hex[:6]}",
+                        "name": name_str,
+                        "active": True
+                    })
+
+        return cp_list
+
+    except Exception as e:
+        print(f"Error fetching CP list: {e}")
+        return []
+
+# ===========================
 # Get Alliance Point Data
 # ===========================
 def analyze_clan_data(df):

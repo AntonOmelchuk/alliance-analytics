@@ -7,7 +7,7 @@ import numpy as np
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from data_processor import get_data_from_csv, analyze_clan_data, get_clan_timeline_data, get_epic_data, get_summary_cards_data
+from data_processor import get_data_from_csv, analyze_clan_data, get_clan_timeline_data, get_epic_data, get_summary_cards_data, get_cp_list
 from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCardsResponse
 from routers import push
 from services.push_worker import check_and_send_push_notifications
@@ -63,6 +63,17 @@ def convert_types(obj):
     if isinstance(obj, list):
         return [convert_types(i) for i in obj]
     return obj
+
+@app.get("/api/cp-list")
+async def get_parties():
+    """
+    Endpoint to retrieve the current list of alliance CPs for Loot Randomizer.
+    """
+    parties = get_cp_list()
+    if not parties:
+        # Return empty list or fallback response safely
+        return []
+    return parties
 
 @app.get("/api/cp-stats", response_model=ParetoResponse)
 def get_cp_stats():
