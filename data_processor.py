@@ -26,6 +26,47 @@ TIME_SERIES_CSV_URL = os.getenv("TIME_SERIES_CSV_URL")
 EPIC_CSV_URL = os.getenv("EPIC_CSV_URL")
 FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL")
 
+# ===========================
+# Get CP Ignore List
+# ===========================
+def get_cp_ignore_list():
+    """
+    Fetch CP ignore list from Firebase Database (/cp_ignore_list.json).
+    Returns a set of normalized CP names (lowercase strings).
+    """
+    try:
+        if not FIREBASE_DATABASE_URL:
+            return set()
+
+        firebase_url = f"{FIREBASE_DATABASE_URL.rstrip('/')}/cp_ignore_list.json"
+        response = requests.get(firebase_url, timeout=5)
+
+        if response.status_code == 200 and response.json():
+            data = response.json()
+            ignore_names = set()
+
+            # Handle object/dict format from Firebase
+            if isinstance(data, dict):
+                for val in data.values():
+                    if isinstance(val, dict) and "name" in val:
+                        ignore_names.add(str(val["name"]).strip().lower())
+                    elif isinstance(val, str):
+                        ignore_names.add(val.strip().lower())
+            # Handle array format from Firebase
+            elif isinstance(data, list):
+                for val in data:
+                    if isinstance(val, dict) and "name" in val:
+                        ignore_names.add(str(val["name"]).strip().lower())
+                    elif isinstance(val, str):
+                        ignore_names.add(val.strip().lower())
+
+            return ignore_names
+    except Exception as e:
+        print(f"Warning: Failed to fetch cp_ignore_list from Firebase. Error: {e}")
+
+    return set()
+
+
 def get_data_from_csv():
     """Fetch CSV data directly using pandas."""
     try:
@@ -36,10 +77,61 @@ def get_data_from_csv():
         return pd.DataFrame()
 
 # ===========================
+# Get CP List
+# ===========================
+def get_cp_list():
+    """
+    Fetch CP list from Google Sheets CSV starting from Column B (index 1), Row 3 (index 2).
+    Returns a list of unique, cleaned CP records excluding ignore list.
+    """
+    try:
+        if not CSV_URL:
+            print("Error: SHEET_CSV_URL is not set in environment variables.")
+            return []
+
+        ignore_list = get_cp_ignore_list()
+
+        # Read CSV without setting header to access raw row/column indices
+        df = pd.read_csv(CSV_URL, header=None)
+
+        if df.empty or df.shape[1] < 2:
+            return []
+
+        # Slice starting from Row 3 (index 2) and take Column B (index 1)
+        cp_column = df.iloc[2:, 1]
+
+        # Clean from empty / NaN values and whitespace
+        cp_list = []
+        seen_names = set()
+
+        for idx, val in enumerate(cp_column):
+            if pd.notna(val):
+                name_str = str(val).strip()
+                # Exclude empty strings, 'nan', duplicates, and ignored CPs
+                if (
+                    name_str
+                    and name_str.lower() != "nan"
+                    and name_str not in seen_names
+                    and name_str.lower() not in ignore_list
+                ):
+                    seen_names.add(name_str)
+                    cp_list.append({
+                        "id": f"cp_{idx + 1}_{uuid.uuid4().hex[:6]}",
+                        "name": name_str,
+                        "active": True
+                    })
+
+        return cp_list
+
+    except Exception as e:
+        print(f"Error fetching CP list: {e}")
+        return []
+
+# ===========================
 # Get Alliance Point Data
 # ===========================
 def analyze_clan_data(df):
-    """Final stage: Adding full summary, top performer, and GB/PTs Ratio from column L."""
+    """Final stage: Adding full summary, top performer, and GB/PTs Ratio from column L with ignore list filtering."""
     if df.empty:
         return {
             "pareto": [],
@@ -51,23 +143,26 @@ def analyze_clan_data(df):
             }
         }
 
+    ignore_list = get_cp_ignore_list()
+
     # 1. Get main data: B (index 1) — cp_name, C (index 2) — points
-    # Take L (index 11) — GB/PTs Ratio
-    # Check if dataset contains enough cell (to avoid IndexError)
     max_col_index = max(2, 11)
     if df.shape[1] <= max_col_index:
-        # if there is no L cell in table
         df_subset = df.iloc[1:, 1:3].copy()
         df_subset.columns = ['cp_name', 'points']
         df_subset['gb_pts_ratio'] = 0.0
     else:
         df_subset = df.iloc[:, [1, 2, 11]].copy()
-        df_subset = df_subset.iloc[1:].copy() # Remove header (1st data cell)
+        df_subset = df_subset.iloc[1:].copy() # Remove header
         df_subset.columns = ['cp_name', 'points', 'gb_pts_ratio']
 
     # 2. Clean from empty values and NaN rows
     df_subset = df_subset.dropna(subset=['cp_name'])
     df_subset = df_subset[df_subset['cp_name'].astype(str).str.lower() != 'nan']
+
+    # 🛑 Filter out ignored CPs
+    df_subset['cp_name_clean'] = df_subset['cp_name'].astype(str).str.strip()
+    df_subset = df_subset[~df_subset['cp_name_clean'].str.lower().isin(ignore_list)].copy()
 
     # 3. Convert values to numbers
     df_subset['points'] = pd.to_numeric(df_subset['points'], errors='coerce').fillna(0)
@@ -81,10 +176,10 @@ def analyze_clan_data(df):
     df_sorted['cumulative_pct'] = df_sorted['contribution_pct'].cumsum().round(2)
     df_sorted['contribution_pct'] = df_sorted['contribution_pct'].round(2)
 
-    # Prepare Pareto list (with gb_pts_ratio)
+    # Prepare Pareto list
     pareto_list = [
         {
-            "cp_name": str(row['cp_name']),
+            "cp_name": str(row['cp_name_clean']),
             "points": int(row['points']),
             "contribution_pct": float(row['contribution_pct']),
             "cumulative_pct": float(row['cumulative_pct']),
@@ -112,12 +207,14 @@ def analyze_clan_data(df):
 # ===========================
 def get_clan_timeline_data():
     """
-    Fetch and process time-series data for CP activity and total players from column A.
+    Fetch and process time-series data for CP activity excluding ignored CPs.
     """
     try:
         df = pd.read_csv(TIME_SERIES_CSV_URL, header=None)
         if df.empty:
             return {"current_snapshot": [], "timeline": []}
+
+        ignore_list = get_cp_ignore_list()
 
         # 1. CP Name — 4th row (index 3), cells from F (index 5) to AE (index 32)
         cp_names = df.iloc[3, 5:33].tolist()
@@ -128,12 +225,15 @@ def get_clan_timeline_data():
         current_cp_snapshot = []
         for name, pts in zip(cp_names, cp_points_raw):
             if pd.notna(name) and str(name).strip() != "" and str(name).lower() != "nan":
+                clean_name = str(name).strip()
+                if clean_name.lower() in ignore_list:
+                    continue
                 try:
                     clean_pts = int(float(str(pts).replace(",", "")))
                 except (ValueError, TypeError):
                     clean_pts = 0
                 current_cp_snapshot.append({
-                    "cp_name": str(name).strip(),
+                    "cp_name": clean_name,
                     "points": clean_pts
                 })
 
@@ -153,7 +253,6 @@ def get_clan_timeline_data():
             action_str = str(action_val).strip() if pd.notna(action_val) else "Event"
             event_label = f"{date_str} - {action_str}"
 
-            # Convert Total Players to Number
             try:
                 total_players = int(float(str(players_val).replace(",", "")))
             except (ValueError, TypeError):
@@ -169,13 +268,18 @@ def get_clan_timeline_data():
             has_data = False
             for idx, cp_name in enumerate(cp_names):
                 if pd.notna(cp_name) and str(cp_name).strip() != "":
+                    clean_cp = str(cp_name).strip()
+                    # 🛑 Skip ignored CP keys in timeline records
+                    if clean_cp.lower() in ignore_list:
+                        continue
+
                     col_index = 5 + idx
                     raw_val = row.iloc[col_index] if col_index < len(row) else 0
                     try:
                         val = int(float(str(raw_val).replace(",", "")))
                     except (ValueError, TypeError):
                         val = 0
-                    record[str(cp_name).strip()] = val
+                    record[clean_cp] = val
                     if val > 0:
                         has_data = True
 
@@ -199,7 +303,7 @@ def fetch_epic_prices():
     Get Epic Price from Firebase Database
     """
     try:
-        firebase_url = f"{FIREBASE_DATABASE_URL}/epicPrices.json"
+        firebase_url = f"{FIREBASE_DATABASE_URL.rstrip('/')}/epicPrices.json"
         response = requests.get(firebase_url, timeout=5)
 
         if response.status_code == 200 and response.json():
@@ -212,7 +316,7 @@ def fetch_epic_prices():
 
 def get_epic_data():
     """
-    Fetch and process Epic Boss drops and distribution data.
+    Fetch and process Epic Boss drops and distribution data, excluding ignored CPs.
     """
     try:
         if not EPIC_CSV_URL:
@@ -222,6 +326,8 @@ def get_epic_data():
                 "epics_breakdown": {},
                 "cp_distribution": []
             }
+
+        ignore_list = get_cp_ignore_list()
 
         # Read CSV
         df = pd.read_csv(EPIC_CSV_URL)
@@ -245,10 +351,6 @@ def get_epic_data():
         df_slice = df_slice.dropna(subset=['epic_name'])
         df_slice = df_slice[df_slice['epic_name'].astype(str).str.strip() != ""]
 
-        # -------------------------------------------------------------
-        # 🔍 ФІЛЬТР ДАТИ: Перевіряємо формат дати в колонці A (наприклад "28-Jul" або "8-Jul")
-        # RegEx: ^\d{1,2}-[A-Za-z]{3}$
-        # -------------------------------------------------------------
         date_pattern = re.compile(r'^\d{1,2}-[A-Za-z]{3}$', re.IGNORECASE)
 
         unassigned_loot = []
@@ -257,54 +359,50 @@ def get_epic_data():
 
         total_farmed = 0
         total_shared = 0
-        total_value_gb = 0 # Total epic converted to GBs
+        total_value_gb = 0
 
         all_farmed_epics = []
 
         for idx, row in df_slice.iterrows():
             farm_date = str(row['farm_date']).strip() if pd.notna(row['farm_date']) else ""
 
-            # Якщо дата порожня або НЕ відповідає шаблону "DD-Mon" (наприклад "28-Jul") — ПРОПУСКАЄМО
             if not farm_date or not date_pattern.match(farm_date):
                 continue
 
             epic_name = str(row['epic_name']).strip()
-
-            # Handle Shared checkbox (can be TRUE/False, "TRUE", "True", True, or 1)
             raw_shared = str(row['is_shared']).strip().upper() if pd.notna(row['is_shared']) else "FALSE"
             is_shared = raw_shared in ["TRUE", "1", "YES"]
 
             cp_name = str(row['cp_name']).strip() if pd.notna(row['cp_name']) else ""
             share_date = str(row['share_date']).strip() if pd.notna(row['share_date']) else ""
 
+            # 🛑 If epic was assigned to ignored CP, treat as not shared or skip CP stats
+            is_cp_ignored = cp_name.lower() in ignore_list
+
             total_farmed += 1
 
-            # Get price for specific epic
             epic_price = epic_prices.get(epic_name, 0)
 
-            # Store all epic data
             all_farmed_epics.append({
                 "id": f"epic_{idx}_{uuid.uuid4().hex[:8]}",
                 "farm_date": farm_date,
                 "epic_name": epic_name,
-                "is_shared": is_shared,
-                "assigned_cp": cp_name if (is_shared and cp_name and cp_name.lower() != "nan") else None,
-                "share_date": share_date if is_shared else None,
+                "is_shared": is_shared and not is_cp_ignored,
+                "assigned_cp": cp_name if (is_shared and cp_name and cp_name.lower() != "nan" and not is_cp_ignored) else None,
+                "share_date": share_date if (is_shared and not is_cp_ignored) else None,
                 "price_gb": epic_price
             })
 
-            # 1. Main statistics for each boss (breakdown)
             if epic_name not in epics_breakdown:
                 epics_breakdown[epic_name] = {"total": 0, "shared": 0, "unassigned": 0}
 
             epics_breakdown[epic_name]["total"] += 1
 
-            if is_shared:
+            if is_shared and not is_cp_ignored:
                 total_shared += 1
                 total_value_gb += epic_price
                 epics_breakdown[epic_name]["shared"] += 1
 
-                # 2. Group by CP
                 if cp_name and cp_name.lower() != "nan":
                     if cp_name not in cp_dict:
                         cp_dict[cp_name] = {
@@ -320,7 +418,6 @@ def get_epic_data():
                     cp_dict[cp_name]["total_gb"] += epic_price
                     cp_dict[cp_name]["last_share_date"] = share_date
 
-                    # Detailed list of shared epics
                     cp_dict[cp_name]["epics_list"].append({
                         "epic_name": epic_name,
                         "farm_date": farm_date,
@@ -328,12 +425,10 @@ def get_epic_data():
                         "price_gb": epic_price
                     })
 
-                    # Count epics for this CP (e.x. {"QueenAnt": 3, "Valakas": 1})
                     current_count = cp_dict[cp_name]["epics_count_by_type"].get(epic_name, 0)
                     cp_dict[cp_name]["epics_count_by_type"][epic_name] = current_count + 1
 
             else:
-                # 3. Non shared epic in warehouse
                 epics_breakdown[epic_name]["unassigned"] += 1
                 unassigned_loot.append({
                     "farm_date": farm_date,
@@ -341,7 +436,6 @@ def get_epic_data():
                     "price_gb": epic_price
                 })
 
-        # Convert cp_dict to sorted array
         cp_distribution = list(cp_dict.values())
         cp_distribution.sort(key=lambda x: x["total_epics"], reverse=True)
 
@@ -352,11 +446,11 @@ def get_epic_data():
                 "unassigned_count": len(unassigned_loot),
                 "total_value_gb": total_value_gb
             },
-            "unassigned_loot": unassigned_loot,   # Epics in warehouse
-            "epics_breakdown": epics_breakdown,   # Epics statistics
-            "cp_distribution": cp_distribution,   # CP statistics
-            "all_farmed_epics": all_farmed_epics, # Array with all epic & date
-            "prices": epic_prices                 # Constant data with epic prices
+            "unassigned_loot": unassigned_loot,
+            "epics_breakdown": epics_breakdown,
+            "cp_distribution": cp_distribution,
+            "all_farmed_epics": all_farmed_epics,
+            "prices": epic_prices
         }
 
     except Exception as e:
@@ -369,15 +463,11 @@ def get_epic_data():
         }
 
 # =================================
-# Callculate Data for Summary Cards
+# Calculate Data for Summary Cards
 # =================================
 def get_summary_cards_data(timeline_records):
     """
-    Calculate metrics for Summary Cards:
-    1. Total Events Count
-    2. Weekly MVP CP
-    3. Peak Event Record (max players/points)
-    4. Weekly Avg Turnout
+    Calculate metrics for Summary Cards excluding ignored CPs from Weekly MVP calculation.
     """
     if not timeline_records:
         return {
@@ -388,15 +478,14 @@ def get_summary_cards_data(timeline_records):
             "total_events": 0
         }
 
-    # Total Events Count
+    ignore_list = get_cp_ignore_list()
+
     total_events = len(timeline_records)
 
-    # Peak Event Record
     peak_record = max(timeline_records, key=lambda x: x.get("total_players", 0))
     peak_players = peak_record.get("total_players", 0)
     peak_label = peak_record.get("event_label", "N/A")
 
-    # Find the most active CP during last 10 events
     RECENT_EVENTS_COUNT = 10
     recent_events = (
         timeline_records[-RECENT_EVENTS_COUNT:]
@@ -404,17 +493,15 @@ def get_summary_cards_data(timeline_records):
         else timeline_records
     )
 
-    # Weekly Avg Turnout
     total_recent_players = sum(e.get("total_players", 0) for e in recent_events)
     weekly_avg_turnout = round(total_recent_players / len(recent_events), 1) if recent_events else 0
 
-    # Weekly MVP CP
     cp_recent_attendance = {}
     system_keys = ["date", "action", "event_label", "total_players"]
 
     for event in recent_events:
         for key, val in event.items():
-            if key not in system_keys:
+            if key not in system_keys and key.lower() not in ignore_list:
                 try:
                     num_val = int(val)
                 except (ValueError, TypeError):

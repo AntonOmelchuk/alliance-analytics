@@ -172,9 +172,9 @@ async def check_and_send_push_notifications():
 
                 # Determine correct title for notifications
                 title_val = (
-                    event_data.get("event") or 
-                    event_data.get("name") or 
-                    event_data.get("title") or 
+                    event_data.get("event") or
+                    event_data.get("name") or
+                    event_data.get("title") or
                     event_id
                 )
 
@@ -228,12 +228,6 @@ async def check_and_send_push_notifications():
             # Fallback for base event key without time
             if event_name not in events_schedule or ts_ms < events_schedule[event_name]["timestamp"]:
                 events_schedule[event_name] = payload
-
-    print(f"📋 Loaded {len(events_schedule)} scheduled events:")
-    for ev_k, ev_v in events_schedule.items():
-        ev_dt_str = datetime.fromtimestamp(ev_v['timestamp'] / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-        diff_min = round((ev_v['timestamp'] - current_timestamp_ms) / 60000)
-        print(f"   • [{ev_k}] '{ev_v['title']}' at {ev_dt_str} (in {diff_min} mins)")
 
     total_subs = len(subs_ref)
     print(f"\n📱 Processing {total_subs} subscription(s)...")
