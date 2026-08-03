@@ -12,9 +12,9 @@ from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCards
 from routers import push
 from services.push_worker import check_and_send_push_notifications
 
-# ====================
+# =====================
 #  FIREBASE & SCHEDULER
-# ====================
+# =====================
 FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL")
 FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
 
@@ -36,13 +36,13 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 # ====================
-#   APP INITIALIZATION (ЕДИНИЙ ЕКЗЕМПЛЯР)
+#   APP INITIALIZATION
 # ====================
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
+    allow_origins=["https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

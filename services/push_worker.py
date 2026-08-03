@@ -172,9 +172,9 @@ async def check_and_send_push_notifications():
 
                 # Determine correct title for notifications
                 title_val = (
-                    event_data.get("event") or 
-                    event_data.get("name") or 
-                    event_data.get("title") or 
+                    event_data.get("event") or
+                    event_data.get("name") or
+                    event_data.get("title") or
                     event_id
                 )
 
