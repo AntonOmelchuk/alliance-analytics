@@ -42,7 +42,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
+    allow_origins=["*", "https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
