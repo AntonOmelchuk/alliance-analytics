@@ -7,9 +7,16 @@ import numpy as np
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from data_processor import get_data_from_csv, analyze_clan_data, get_clan_timeline_data, get_epic_data, get_summary_cards_data, get_cp_list
+from data_processor import (
+    get_data_from_csv,
+    analyze_clan_data,
+    get_clan_timeline_data,
+    get_epic_data,
+    get_summary_cards_data,
+    get_cp_list,
+)
 from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCardsResponse
-from routers import push
+from routers import push, auth, players
 from services.push_worker import check_and_send_push_notifications
 
 # =====================
@@ -42,13 +49,16 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
+    allow_origins=["*", "https://eternal-respawn.netlify.app", "https://iron-gates.vercel.app"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
+# Include Routers
 app.include_router(push.router)
+app.include_router(auth.router)
+app.include_router(players.router)
 
 # ====================
 #      ROUTES
@@ -71,7 +81,6 @@ async def get_parties():
     """
     parties = get_cp_list()
     if not parties:
-        # Return empty list or fallback response safely
         return []
     return parties
 
@@ -101,8 +110,6 @@ def get_summary():
         timeline_res.get("timeline", []),
     )
     return {"status": "success", "data": summary_data}
-
-
 
 @app.api_route("/api/ping", methods=["GET", "HEAD"])
 def ping():

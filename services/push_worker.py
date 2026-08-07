@@ -267,9 +267,9 @@ async def check_and_send_push_notifications():
 
                 print(f"   👉 Alert '{event_key}': target lead={lead_time_min}m | current diff={diff_minutes}m ({diff_seconds:.1f}s)")
 
-                # Target window: from 3 minutes late (-180s) up to 1 minute early (+60s)
+                # Target window: from 2 minutes late (-120s) up to 1 minute early (+60s)
                 target_seconds = lead_time_min * 60
-                is_time_to_send = -180 <= (target_seconds - diff_seconds) <= 60
+                is_time_to_send = -120 <= (target_seconds - diff_seconds) <= 60
 
                 if is_time_to_send:
                     print(f"   🚀 MATCH! Sending push for '{event_key}' (Lead: {lead_time_min}m)...")
