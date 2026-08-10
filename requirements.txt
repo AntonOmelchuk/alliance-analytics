@@ -10,3 +10,4 @@ apscheduler
 pywebpush
 pytesseract
 opencv-python-headless
+python-multipart
