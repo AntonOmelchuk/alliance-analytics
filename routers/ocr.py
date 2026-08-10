@@ -5,6 +5,12 @@ import numpy as np
 import pytesseract
 from fastapi import APIRouter, File, UploadFile
 
+import shutil
+
+# Set path for Aptfile binaries on Render
+tesseract_path = shutil.which("tesseract") or "/usr/bin/tesseract"
+pytesseract.pytesseract.tesseract_cmd = tesseract_path
+
 router = APIRouter(prefix="/api/ocr", tags=["OCR"])
 
 EVENT_MAPPING = {
