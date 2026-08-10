@@ -1,17 +1,12 @@
+import os
 import re
 from datetime import datetime, timezone
-import cv2
-import numpy as np
-import pytesseract
+import requests
 from fastapi import APIRouter, File, UploadFile
 
-import shutil
-
-# Set path for Aptfile binaries on Render
-tesseract_path = shutil.which("tesseract") or "/usr/bin/tesseract"
-pytesseract.pytesseract.tesseract_cmd = tesseract_path
-
 router = APIRouter(prefix="/api/ocr", tags=["OCR"])
+
+OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld") # "helloworld" is default demo key
 
 EVENT_MAPPING = {
     # Epic Bosses
@@ -49,21 +44,37 @@ EVENT_MAPPING = {
 async def parse_respawn(file: UploadFile = File(...)):
     try:
         contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # Image preprocessing for better readability
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY)
+        # Send image file directly to OCR.space API
+        response = requests.post(
+            "https://api.ocr.space/parse/image",
+            files={"file": (file.filename, contents, file.content_type)},
+            data={
+                "apikey": OCR_SPACE_API_KEY,
+                "language": "eng",
+                "isTable": True,
+                "scale": True,
+                "OCREngine": "2"  # Engine 2 is optimized for tables and numbers
+            },
+            timeout=15
+        )
 
-        # Extract text via pytesseract
-        ocr_text = pytesseract.image_to_string(thresh, lang="eng")
-        lines = ocr_text.split("\n")
+        result_json = response.json()
+
+        if result_json.get("IsErroredOnProcessing"):
+            error_msg = result_json.get("ErrorMessage", ["OCR Processing error"])[0]
+            return {"status": "error", "message": error_msg}
+
+        parsed_results_data = result_json.get("ParsedResults", [])
+        if not parsed_results_data:
+            return {"status": "success", "data": []}
+
+        ocr_text = parsed_results_data[0].get("ParsedText", "")
+        lines = [line.strip() for line in ocr_text.split("\r\n") if line.strip()]
 
         parsed_results = []
 
-        # Flexible regex patterns for dates and times
+        # Regex for dates and time formats
         epic_regex = re.compile(
             r"(\d{1,2})[.s/-](\d{1,2})[.s/-](\d{2,4})\s+(\d{1,2})[:;.s](\d{2})"
         )
@@ -72,9 +83,7 @@ async def parse_respawn(file: UploadFile = File(...)):
         )
 
         for i, line in enumerate(lines):
-            clean_line = line.strip().lower()
-            if not clean_line:
-                continue
+            clean_line = line.lower()
 
             matched_db_key = None
             for keyword, db_key in EVENT_MAPPING.items():
@@ -85,7 +94,7 @@ async def parse_respawn(file: UploadFile = File(...)):
             if not matched_db_key:
                 continue
 
-            # Look at current line and next 2 lines for dates
+            # Look at current line and next 2 lines for date context
             context_window = " ".join(lines[i:min(i + 3, len(lines))]).lower()
             dt = None
 
@@ -117,5 +126,7 @@ async def parse_respawn(file: UploadFile = File(...)):
 
         return {"status": "success", "data": parsed_results}
 
+    except requests.exceptions.RequestException as e:
+        return {"status": "error", "message": f"OCR API request failed: {str(e)}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}

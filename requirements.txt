@@ -8,6 +8,4 @@ python-dotenv
 firebase-admin
 apscheduler
 pywebpush
-pytesseract
-opencv-python-headless
 python-multipart
