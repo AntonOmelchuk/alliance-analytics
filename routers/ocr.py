@@ -2,12 +2,10 @@ import re
 from datetime import datetime, timezone
 import cv2
 import numpy as np
-import easyocr
+import pytesseract
 from fastapi import APIRouter, File, UploadFile
 
 router = APIRouter(prefix="/api/ocr", tags=["OCR"])
-
-reader = easyocr.Reader(['en'], gpu=False)
 
 EVENT_MAPPING = {
     # Epic Bosses
@@ -48,21 +46,23 @@ async def parse_respawn(file: UploadFile = File(...)):
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
+        # Image preprocessing for better readability
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY)
 
-        ocr_results = reader.readtext(gray, detail=0)
-
-        full_text = "\n".join(ocr_results)
-        lines = full_text.split("\n")
+        # Extract text via pytesseract
+        ocr_text = pytesseract.image_to_string(thresh, lang="eng")
+        lines = ocr_text.split("\n")
 
         parsed_results = []
 
+        # Flexible regex patterns for dates and times
         epic_regex = re.compile(
-            r"(\d{1,2})[\.\/,\-s](\d{1,2})[\.\/,\-s](\d{2,4})\s+(\d{1,2})[\.:;,s](\d{2})"
+            r"(\d{1,2})[.s/-](\d{1,2})[.s/-](\d{2,4})\s+(\d{1,2})[:;.s](\d{2})"
         )
         siege_ch_regex = re.compile(
-            r"(\d{1,2})[\.:;,s](\d{2})\s+(\d{1,2})[\.\/,\-s](\d{1,2})[\.\/,\-s](\d{2,4})"
+            r"(\d{1,2})[:;.s](\d{2})\s+(\d{1,2})[.s/-](\d{1,2})[.s/-](\d{2,4})"
         )
 
         for i, line in enumerate(lines):
@@ -79,8 +79,8 @@ async def parse_respawn(file: UploadFile = File(...)):
             if not matched_db_key:
                 continue
 
+            # Look at current line and next 2 lines for dates
             context_window = " ".join(lines[i:min(i + 3, len(lines))]).lower()
-
             dt = None
 
             epic_match = epic_regex.search(context_window)
@@ -100,7 +100,6 @@ async def parse_respawn(file: UploadFile = File(...)):
 
             if dt:
                 timestamp_sec = int(dt.timestamp())
-
                 if not any(r["dbKey"] == matched_db_key for r in parsed_results):
                     parsed_results.append({
                         "dbKey": matched_db_key,
@@ -110,7 +109,7 @@ async def parse_respawn(file: UploadFile = File(...)):
                         "utcInputString": dt.strftime("%Y-%m-%dT%H:%M")
                     })
 
-        return {"status": "success", "data": parsed_results, "raw_text_debug": ocr_results}
+        return {"status": "success", "data": parsed_results}
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
