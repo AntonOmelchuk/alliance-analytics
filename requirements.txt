@@ -1,8 +1,8 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-torch+cpu
-torchvision+cpu
-opencv-python-headless
+--index-url https://download.pytorch.org/whl/cpu
 
+torch
+torchvision
+opencv-python-headless
 fastapi
 uvicorn
 gunicorn
