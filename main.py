@@ -16,7 +16,7 @@ from data_processor import (
     get_cp_list,
 )
 from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCardsResponse
-from routers import push, auth, players, ocr
+from routers import push, auth, players, ocr, proof
 from services.push_worker import check_and_send_push_notifications
 
 # =====================
@@ -60,6 +60,7 @@ app.include_router(push.router)
 app.include_router(auth.router)
 app.include_router(players.router)
 app.include_router(ocr.router)
+app.include_router(proof.router)
 
 # ====================
 #      ROUTES
