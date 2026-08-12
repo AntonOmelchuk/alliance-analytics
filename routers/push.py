@@ -35,7 +35,8 @@ async def subscribe_to_push(data: PushSubscriptionSchema):
         "endpoint": data.endpoint,
         "keys": data.keys.model_dump(),
         "alerts": {k: v.model_dump() for k, v in data.alerts.items()},
-        "lang": data.lang
+        "lang": data.lang,
+        "discord_id": data.discord_id
     }
 
     print(f"[DEBUG] Writing payload to Firebase path 'push_subscriptions/{sub_key}'...")
