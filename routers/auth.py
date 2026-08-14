@@ -3,7 +3,7 @@ import time
 import httpx
 from fastapi import APIRouter, HTTPException, status, Request
 from pydantic import BaseModel
-from firebase_admin import db
+from firebase_admin import db, auth as firebase_auth
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -87,11 +87,9 @@ async def auth_discord(payload: DiscordAuthPayload, request: Request):
             "avatar_url": avatar_url,
             "char_name": "",
             "cp_name": "",
-            "is_setup_complete": False, # Done onboarding or not
+            "is_setup_complete": False,
             "role": "MEMBER",
             "created_at": now_ms,
-
-            # Tracking Fields
             "originalIP": current_ip,
             "originalDevice": current_device,
             "IPlist": [current_ip],
@@ -100,15 +98,13 @@ async def auth_discord(payload: DiscordAuthPayload, request: Request):
         }
         user_ref.set(user_data)
     else:
-        # 🔄 New Login -> Update IPlist and devicesList if have new one
+        # 🔄 New Login -> Update IPlist and devicesList
         user_data = existing_user
 
-        # Update IP List
         ip_list = user_data.get("IPlist", [])
         if current_ip not in ip_list:
             ip_list.append(current_ip)
 
-        # Update devices list
         devices_list = user_data.get("devicesList", [])
         if current_device not in devices_list:
             devices_list.append(current_device)
@@ -124,8 +120,11 @@ async def auth_discord(payload: DiscordAuthPayload, request: Request):
         user_data["IPlist"] = ip_list
         user_data["devicesList"] = devices_list
 
+    raw_token = firebase_auth.create_custom_token(discord_id)
+    firebase_custom_token = raw_token.decode("utf-8") if isinstance(raw_token, bytes) else str(raw_token)
+
     return {
         "status": "success",
         "user": user_data,
-        "token": access_token
+        "token": firebase_custom_token
     }

@@ -13,3 +13,4 @@ __pycache__/
 .idea/
 service_account.json
 firebase-credentials.json
+.DS_Store
