@@ -120,7 +120,12 @@ async def auth_discord(payload: DiscordAuthPayload, request: Request):
         user_data["IPlist"] = ip_list
         user_data["devicesList"] = devices_list
 
-    raw_token = firebase_auth.create_custom_token(discord_id)
+    custom_claims = {
+        "discord_id": discord_id,
+        "role": user_data.get("role", "MEMBER")
+    }
+
+    raw_token = firebase_auth.create_custom_token(discord_id, developer_claims=custom_claims)
     firebase_custom_token = raw_token.decode("utf-8") if isinstance(raw_token, bytes) else str(raw_token)
 
     return {
