@@ -15,8 +15,15 @@ from data_processor import (
     get_summary_cards_data,
     get_cp_list,
 )
-from schemas import ParetoResponse, TimelineResponse, EpicResponse, SummaryCardsResponse
-from routers import push, auth, players, ocr, proof
+from schemas import (
+    ParetoResponse,
+    TimelineResponse,
+    EpicResponse,
+    SummaryCardsResponse,
+    DashboardDataResponse
+)
+from routers import push, auth, players, ocr, proof, iron_gates
+
 from services.push_worker import check_and_send_push_notifications
 
 # =====================
@@ -61,7 +68,7 @@ app.include_router(auth.router)
 app.include_router(players.router)
 app.include_router(ocr.router)
 app.include_router(proof.router)
-
+app.include_router(iron_gates.router)
 # ====================
 #      ROUTES
 # ====================

@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
 
 # ==========================================
@@ -142,3 +142,7 @@ class PushSubscriptionSchema(BaseModel):
                 }
             }
         }
+
+class DashboardDataResponse(BaseModel):
+    status: str
+    data: Dict[str, Any]
