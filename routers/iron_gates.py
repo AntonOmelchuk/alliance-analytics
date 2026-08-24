@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import random
 from fastapi import APIRouter
 from dotenv import load_dotenv
 
@@ -12,9 +13,9 @@ SHEET_1_TAB2_URL = os.getenv("CP_SHEET_TAB2_URL")
 TABLE_2_URL = os.getenv("VRYO_TABLE_URL")
 
 
-def calculate_top_players_last_15(df_tab2, cp_members):
+def calculate_top_players_last_30(df_tab2, cp_members):
     """
-    Рахує кількість відвіданих івентів (чисту кількість '1') за останні 15 завершених івентів.
+    Рахує кількість відвіданих івентів (чисту кількість '1') за останні 30 завершених івентів.
     Зберігає оригінальний порядок гравців (як у колонках таблиці).
     """
     try:
@@ -38,7 +39,7 @@ def calculate_top_players_last_15(df_tab2, cp_members):
                 except ValueError:
                     pass
 
-        last_events = valid_events[-15:] if len(valid_events) >= 15 else valid_events
+        last_events = valid_events[-30:] if len(valid_events) >= 30 else valid_events
 
         header_row = df_tab2.iloc[0]
         player_col_indexes = {}
@@ -67,10 +68,30 @@ def calculate_top_players_last_15(df_tab2, cp_members):
                     except ValueError:
                         pass
 
-        return [
-            {"name": name, "score": score}
-            for name, score in player_attendance.items()
-        ]
+        sorted_players = [
+              {"name": name, "score": score}
+              for name, score in player_attendance.items()
+          ]
+
+
+        sorted_players.sort(key=lambda x: x["score"], reverse=True)
+
+
+        ranked_players = []
+        current_rank = 1
+        for i, player in enumerate(sorted_players):
+              if i > 0 and player["score"] < sorted_players[i - 1]["score"]:
+                  current_rank = i + 1
+
+              ranked_players.append({
+                  "name": player["name"],
+                  "score": player["score"],
+                  "rank": current_rank
+              })
+
+        random.shuffle(ranked_players)
+
+        return ranked_players
     except Exception as e:
         print(f"Error calculating top players: {e}")
         return []
@@ -107,7 +128,7 @@ def get_dashboard_data():
         except Exception:
             pass
 
-        # 2. Table 1 / Tab 2 (Події, останній івент та топ за 15 івентів)
+        # 2. Table 1 / Tab 2 (Події, останній івент та топ за 30 івентів)
         total_events_count = 0
         last_played_event = None
         top_players = []
@@ -146,7 +167,7 @@ def get_dashboard_data():
                 if all_events:
                     last_played_event = all_events[-1]
 
-            top_players = calculate_top_players_last_15(df_tab2, cp_members)
+            top_players = calculate_top_players_last_30(df_tab2, cp_members)
 
         # 3. Table 2 (V3:V26 - епіки)
         received_epics_count = 0
@@ -169,7 +190,7 @@ def get_dashboard_data():
                 "total_events_count": total_events_count,
                 "received_epics_count": received_epics_count,
                 "last_played_event": last_played_event,
-                "top_players_last_15": top_players,
+                "top_players_last_30": top_players,
                 "all_events": all_events
             }
         }
