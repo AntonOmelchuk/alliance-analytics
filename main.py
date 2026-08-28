@@ -22,7 +22,7 @@ from schemas import (
     SummaryCardsResponse,
     DashboardDataResponse
 )
-from routers import push, auth, players, ocr, proof, iron_gates
+from routers import push, auth, players, ocr, proof, iron_gates, ig_analytics
 
 from services.push_worker import check_and_send_push_notifications
 
@@ -69,6 +69,7 @@ app.include_router(players.router)
 app.include_router(ocr.router)
 app.include_router(proof.router)
 app.include_router(iron_gates.router)
+app.include_router(ig_analytics.router)
 # ====================
 #      ROUTES
 # ====================
