@@ -157,10 +157,22 @@ def process_cp_analytics(days_filter=None):
     total_points_sum = sum(e["points"] for e in valid_events)
     avg_event_points = total_points_sum / total_events if total_events > 0 else 0
 
+    # Змінні для розрахунку фул-паті стріків
+    max_full_party_streak = 0
+    current_full_party_streak = 0
+
     for idx, event in enumerate(valid_events):
         event_label = f"{event['action']} ({event['date']})"
 
-        # Timeline item
+        is_full_party = event['attended_count'] >= 9
+
+        if is_full_party:
+            current_full_party_streak += 1
+            if current_full_party_streak > max_full_party_streak:
+                max_full_party_streak = current_full_party_streak
+        else:
+            current_full_party_streak = 0
+
         timeline_item = {
             "id": f"event_{idx}",
             "date": event["date"],
@@ -168,6 +180,7 @@ def process_cp_analytics(days_filter=None):
             "window": event["window"],
             "points": event["points"],
             "is_dominator": event["is_dominator"],
+            "is_full_party": is_full_party,
             "total_participants": event["attended_count"],
             "event_label": event_label,
             "present_members": [name for name, present in event["attendance"].items() if present == 1]
@@ -229,6 +242,7 @@ def process_cp_analytics(days_filter=None):
         "total_events": total_events,
         "dominator_events_count": dominator_events_count,
         "dominator_pct": dominator_pct,
+        "max_full_party_streak": max_full_party_streak,
         "average_event_points": round(avg_event_points, 1),
         "members_analytics": members_analytics,
         "timeline": timeline,
