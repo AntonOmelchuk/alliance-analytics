@@ -31,7 +31,6 @@ def get_irongates_members():
         members_list = []
         if firebase_data:
             if isinstance(firebase_data, dict):
-                # ВИПРАВЛЕНО: замінено import на in, додано правильний розбір словника
                 for key, val in firebase_data.items():
                     if isinstance(val, dict):
                         members_list.append({"id": key, **val})
@@ -58,7 +57,6 @@ def get_irongates_members():
                     clean_name = str(name_val).strip().lower()
 
                     try:
-                        # Замінюємо кому на крапку для правильного парсингу float
                         balance_str = str(balance_val).replace(',', '.').strip() if pd.notna(balance_val) else "0"
                         balance = float(balance_str)
                         if balance.is_integer():
@@ -121,11 +119,9 @@ def get_iron_gates_points(csv_url):
 
         total_rows = len(df_points)
 
-        # Перевіряємо, чи в таблиці є хоча б 3 рядки (індекси 0, 1, 2) та мінімум 3 колонки
         if total_rows < 3 or df_points.shape[1] < 3:
             return 0
 
-        # Починаємо з 3-го рядка (індекс 2) до самого кінця таблиці
         for i in range(2, total_rows):
             row = df_points.iloc[i]
 
@@ -133,14 +129,11 @@ def get_iron_gates_points(csv_url):
             points_val = row.iloc[2] # Колонка C (Поінти)
 
             if pd.notna(cp_name):
-                # Очищаємо назву для точного порівняння ('IronGates' / 'Iron Gates')
                 clean_cp_name = str(cp_name).replace(" ", "").strip().lower()
 
                 if "irongates" in clean_cp_name:
-                    # Безпечно конвертуємо поінти в число (float або int)
                     try:
                         points = float(points_val) if pd.notna(points_val) else 0.0
-                        # Якщо це ціле число, можна повернути як int для краси
                         if points.is_integer():
                             points = int(points)
 
@@ -162,8 +155,6 @@ def calculate_top_players_last_30(df_tab2, cp_members):
     try:
         if df_tab2.empty or df_tab2.shape[1] < 6:
             return []
-
-        ignored_players = ["winson"]
 
         history_slice = df_tab2.iloc[4:].copy()
         valid_events = []
@@ -191,9 +182,6 @@ def calculate_top_players_last_30(df_tab2, cp_members):
             if not col_name or "driver" in col_name.lower():
                 break
 
-            if col_name.lower() in ignored_players:
-                continue
-
             player_col_indexes[col_name] = col_idx
 
         player_attendance = {name: 0 for name in player_col_indexes.keys()}
@@ -210,23 +198,23 @@ def calculate_top_players_last_30(df_tab2, cp_members):
                         pass
 
         sorted_players = [
-              {"name": name, "score": score}
-              for name, score in player_attendance.items()
-          ]
+            {"name": name, "score": score}
+            for name, score in player_attendance.items()
+        ]
 
         sorted_players.sort(key=lambda x: x["score"], reverse=True)
 
         ranked_players = []
         current_rank = 1
         for i, player in enumerate(sorted_players):
-              if i > 0 and player["score"] < sorted_players[i - 1]["score"]:
-                  current_rank = i + 1
+            if i > 0 and player["score"] < sorted_players[i - 1]["score"]:
+                current_rank = i + 1
 
-              ranked_players.append({
-                  "name": player["name"],
-                  "score": player["score"],
-                  "rank": current_rank
-              })
+            ranked_players.append({
+                "name": player["name"],
+                "score": player["score"],
+                "rank": current_rank
+            })
 
         random.shuffle(ranked_players)
 
@@ -252,7 +240,6 @@ def get_last_iron_gates_epic(epic_csv_url):
         if total_rows < 2 or df_epics_history.shape[1] < 5:
             return None
 
-        # Проходимося від останнього рядка до 1 (ігноруючи хедер на 0)
         for i in range(total_rows - 1, 0, -1):
             row = df_epics_history.iloc[i]
 
@@ -261,7 +248,6 @@ def get_last_iron_gates_epic(epic_csv_url):
             date_val = row.iloc[4]   # Колонка E
 
             if pd.notna(cp_name):
-                # Прибираємо пробіли та переводимо в нижній регістр для точного пошуку ('IronGates' або 'Iron Gates')
                 clean_cp_name = str(cp_name).replace(" ", "").strip().lower()
 
                 if "irongates" in clean_cp_name:
@@ -282,15 +268,23 @@ def get_dashboard_data():
         if not SHEET_1_TAB1_URL:
             raise ValueError("CP_SHEET_TAB1_URL is not set in environment variables.")
 
-        # 1. Table 1 / Tab 1 (B2:B11)
+        # 1. Table 1 / Tab 1 (Динамічний збір учасників до рядка зі словом "Driver")
         df_tab1 = pd.read_csv(SHEET_1_TAB1_URL, header=None)
 
-        cp_names_raw = df_tab1.iloc[1:11, 1]
-        cp_members = [
-            str(val).strip()
-            for val in cp_names_raw
-            if pd.notna(val) and str(val).strip().lower() != 'nan'
-        ]
+        cp_members = []
+        if df_tab1.shape[0] > 1 and df_tab1.shape[1] > 1:
+            for idx in range(1, len(df_tab1)):
+                val = df_tab1.iloc[idx, 1]
+                if pd.notna(val):
+                    val_str = str(val).strip()
+                    val_lower = val_str.lower()
+                    
+                    if "driver" in val_lower:
+                        break
+                        
+                    if val_str and val_lower != 'nan':
+                        cp_members.append(val_str)
+                        
         members_count = len(cp_members)
 
         # Отримуємо total_cp_ap (з бонусами) через CSV_URL з колонки B та C
@@ -343,7 +337,12 @@ def get_dashboard_data():
                 if all_events:
                     last_played_event = all_events[-1]
 
-            top_players = calculate_top_players_last_30(df_tab2, cp_members)
+            # ВИПРАВЛЕНО: тепер фільтруємо за ключем "score", який повертає calculate_top_players_last_30
+            raw_top_players = calculate_top_players_last_30(df_tab2, cp_members)
+            top_players = [
+                player for player in raw_top_players 
+                if float(player.get("score", 0)) > 0
+            ]
 
         # 3. Table 2 (V3:V26 - епіки)
         received_epics_count = 0
@@ -374,9 +373,7 @@ def get_dashboard_data():
                 "all_events": all_events,
             }
         }
-
     except Exception as e:
-        print(f"Error generating Iron Gates dashboard data: {e}")
         return {
             "success": False,
             "error": str(e)
