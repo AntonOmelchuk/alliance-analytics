@@ -33,7 +33,7 @@ def process_epic_share_data(member_names):
     - Starts from row index 1.
     """
     df = fetch_csv_data(IG_EPIC_SHARE)
-
+    print('df', df)
     # Initialize structures
     epic_history = []
     member_epic_counts = {name: [] for name in member_names}
