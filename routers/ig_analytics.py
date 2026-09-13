@@ -225,7 +225,7 @@ def process_cp_analytics(days_filter=None):
     for idx, event in enumerate(valid_events):
         event_label = f"{event['action']} ({event['date']})"
 
-        is_full_party = event['attended_count'] >= 9
+        is_full_party = event['points'] >= 9
 
         if is_full_party:
             current_full_party_streak += 1
