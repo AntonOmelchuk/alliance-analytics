@@ -268,7 +268,6 @@ def get_dashboard_data():
         if not SHEET_1_TAB1_URL:
             raise ValueError("CP_SHEET_TAB1_URL is not set in environment variables.")
 
-        # 1. Table 1 / Tab 1 (Динамічний збір учасників до рядка зі словом "Driver")
         df_tab1 = pd.read_csv(SHEET_1_TAB1_URL, header=None)
 
         cp_members = []
@@ -278,16 +277,15 @@ def get_dashboard_data():
                 if pd.notna(val):
                     val_str = str(val).strip()
                     val_lower = val_str.lower()
-                    
+
                     if "driver" in val_lower:
                         break
-                        
+
                     if val_str and val_lower != 'nan':
                         cp_members.append(val_str)
-                        
+
         members_count = len(cp_members)
 
-        # Отримуємо total_cp_ap (з бонусами) через CSV_URL з колонки B та C
         total_cp_ap = get_iron_gates_points(CSV_URL)
 
         avg_attendance = 0
@@ -298,7 +296,6 @@ def get_dashboard_data():
         except Exception:
             pass
 
-        # 2. Table 1 / Tab 2 (Події, останній івент та топ за 30 івентів)
         total_events_count = 0
         last_played_event = None
         top_players = []
@@ -337,14 +334,12 @@ def get_dashboard_data():
                 if all_events:
                     last_played_event = all_events[-1]
 
-            # ВИПРАВЛЕНО: тепер фільтруємо за ключем "score", який повертає calculate_top_players_last_30
             raw_top_players = calculate_top_players_last_30(df_tab2, cp_members)
             top_players = [
-                player for player in raw_top_players 
+                player for player in raw_top_players
                 if float(player.get("score", 0)) > 0
             ]
 
-        # 3. Table 2 (V3:V26 - епіки)
         received_epics_count = 0
         if TABLE_2_URL:
             df_epics = pd.read_csv(TABLE_2_URL, header=None)
@@ -355,7 +350,6 @@ def get_dashboard_data():
                         words = str(cell_val).split()
                         received_epics_count += len(words)
 
-        # 4. Отримання останнього епіку Iron Gates з EPIC_CSV_URL
         last_epic_data = get_last_iron_gates_epic(EPIC_CSV_URL)
 
         return {

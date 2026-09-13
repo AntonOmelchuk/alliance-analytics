@@ -13,6 +13,8 @@ IG_EPIC_SHARE = os.getenv("IG_EPIC_SHARE")
 
 router = APIRouter(prefix="/api/ig-analytics", tags=["Iron Gates CP Analytics"])
 
+IGNORED_MEMBERS = {"winson", "ansol", "maniactom"}
+
 def fetch_csv_data(url):
     """Helper to fetch CSV data from any given URL using pandas."""
     try:
@@ -60,14 +62,13 @@ def process_epic_share_data(member_names):
         # Date validation check
         parsed_date = pd.to_datetime(date_str, format="%d/%m/%y", errors="coerce")
         if pd.isna(date_str) or not date_pattern.match(date_str):
-            # Try flexible match if needed, or skip if invalid
             pass
-        # Key according to frontend scroll timepline library
+
         epic_item = {
             "date": date_str,
-            "year": parsed_date,        # parsed date
-            "title": epic_name,         # epic name
-            "subtitle": member_name,    # nickname
+            "year": parsed_date,
+            "title": epic_name,
+            "subtitle": member_name,
             "description": ""
         }
         epic_history.append(epic_item)
@@ -81,11 +82,8 @@ def process_epic_share_data(member_names):
                 "epic_name": epic_name
             })
 
-    # Sort epic history chronologically if dates are valid
     epic_history.sort(key=lambda x: x["year"] if pd.notna(x["year"]) else pd.Timestamp.min)
 
-    # Clean up temporal pandas objects from dict before returning if necessary,
-    # or keep clean string representation:
     cleaned_epic_history = [
         {
             "year": item["date"],
@@ -115,17 +113,19 @@ def process_cp_analytics(days_filter=None):
             "summary": {}
         }
 
-    # 1. Extract member names from row index 0, strictly from columns F to P (indices 5 to 15)
+    # 1. Extract member names from row index 0, strictly from columns F to P (indices 5 to 15), ignoring winson, ansol, maniactom
     header_row = df.iloc[0]
     member_cols = []
     member_names = []
 
-    max_member_col = min(16, df.shape[1])
+    max_member_col = min(17, df.shape[1])
 
     for col_idx in range(5, max_member_col):
         name = header_row.iloc[col_idx]
         if pd.notna(name) and str(name).strip() != "" and str(name).lower() != "nan":
             clean_name = str(name).strip()
+            if clean_name.lower() in IGNORED_MEMBERS:
+                continue
 
             member_names.append(clean_name)
             member_cols.append(col_idx)
@@ -144,11 +144,9 @@ def process_cp_analytics(days_filter=None):
         date_str = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
         window = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
 
-        # Skip summary or empty rows where date or action is missing
         if not action or action.lower() == "nan" or not date_str or date_str.lower() == "nan":
             continue
 
-        # Basic date validation check
         if not date_pattern.match(date_str):
             continue
 
@@ -157,13 +155,11 @@ def process_cp_analytics(days_filter=None):
         except (ValueError, TypeError):
             points = 0
 
-        # Dominator column (Col E, index 4) check
         dominator_val = str(row.iloc[4]).strip() if pd.notna(row.iloc[4]) else ""
         is_dominator = False
         if dominator_val and dominator_val.lower() not in ["nan", "false", "", "0", "none"]:
             is_dominator = True
 
-        # Parse member attendance (1 = attended, empty/0 = missed) - strictly for columns F to P
         attendance = {}
         attended_count = 0
         for name, col_idx in zip(member_names, member_cols):
@@ -189,13 +185,9 @@ def process_cp_analytics(days_filter=None):
             "attendance": attendance
         })
 
-    # Filter out rows with invalid parsed dates
     valid_events = [e for e in raw_events if pd.notna(e["parsed_date"])]
-
-    # Sort chronologically just to be safe
     valid_events.sort(key=lambda x: x["parsed_date"])
 
-    # Apply time window filter if specified (e.g., 7 or 30 days from the latest event)
     if days_filter and valid_events:
         latest_date = valid_events[-1]["parsed_date"]
         cutoff_date = latest_date - timedelta(days=int(days_filter))
@@ -215,11 +207,9 @@ def process_cp_analytics(days_filter=None):
             "epic_history": epic_history
         }
 
-    # Calculate Dominator stats
     dominator_events_count = sum(1 for e in valid_events if e["is_dominator"])
     dominator_pct = round((dominator_events_count / total_events) * 100, 1)
 
-    # 3. Calculate metrics per member
     member_stats = {name: {"attended": 0, "points": 0, "current_streak": 0, "max_streak": 0} for name in member_names}
 
     timeline = []
@@ -227,10 +217,8 @@ def process_cp_analytics(days_filter=None):
     event_performance = []
 
     total_points_sum = sum(e["points"] for e in valid_events)
-    avg_event_points = (total_points_sum / total_events) if total_events > 0 else 0
     avg_event_points = total_points_sum / total_events if total_events > 0 else 0
 
-    # Змінні для розрахунку фул-паті стріків
     max_full_party_streak = 0
     current_full_party_streak = 0
 
@@ -260,7 +248,6 @@ def process_cp_analytics(days_filter=None):
         }
         timeline.append(timeline_item)
 
-        # Event performance item for bar chart
         event_performance.append({
             "event_label": event_label,
             "date": event["date"],
@@ -270,7 +257,6 @@ def process_cp_analytics(days_filter=None):
             "is_above_average": event["points"] >= avg_event_points
         })
 
-        # Process member specific achievements per event
         for name in member_names:
             is_present = event["attendance"].get(name, 0)
             if is_present == 1:
@@ -282,7 +268,6 @@ def process_cp_analytics(days_filter=None):
             else:
                 member_stats[name]["current_streak"] = 0
 
-            # Points history mapping for line chart
             points_history_map[name].append({
                 "event_label": event_label,
                 "date": event["date"],
@@ -291,7 +276,6 @@ def process_cp_analytics(days_filter=None):
                 "event_points": event["points"] if is_present == 1 else 0
             })
 
-    # Finalize members summary array including epic information
     members_analytics = []
     for name in member_names:
         stats = member_stats[name]
