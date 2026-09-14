@@ -10,6 +10,7 @@ load_dotenv()
 
 CP_SHEET_TAB2_URL = os.getenv("CP_SHEET_TAB2_URL")
 IG_EPIC_SHARE = os.getenv("IG_EPIC_SHARE")
+VRYO_TABLE_URL = os.getenv("VRYO_TABLE_URL") # Нова таблиця з балансом епіків
 
 router = APIRouter(prefix="/api/ig-analytics", tags=["Iron Gates CP Analytics"])
 
@@ -28,6 +29,66 @@ def fetch_csv_data(url):
         print(f"Error fetching CSV data from {url}: {e}")
         return pd.DataFrame()
 
+def process_epics_balance_data():
+    """
+    Process Vryo table structure (epics balance):
+    - Col R (index 17): Condition flag (must be 1 to include member)
+    - Col S (index 18): WHO (Member name)
+    - Col T (index 19): TOTAL (Net balance / поточна кількість поінтів після списання)
+    - Col U (index 20): Got (score) (скільки списано за епік)
+    - Col V (index 21): Got (what) (список епіків)
+    - Col W (index 22): ALL POINTS (загальна кількість поінтів без вирахування)
+    """
+    df = fetch_csv_data(VRYO_TABLE_URL)
+    balance_data = []
+
+    if df.empty or df.shape[0] < 2:
+        return balance_data
+
+    for row_idx in range(df.shape[0]):
+        row = df.iloc[row_idx]
+
+        # 1. Перевіряємо колонку R (index 17) на наявність цифри 1
+        flag_val = str(row.iloc[17]).strip() if len(row) > 17 and pd.notna(row.iloc[17]) else ""
+        if flag_val != "1" and flag_val != "1.0":
+            continue
+
+        # 2. Перевіряємо колонку S (index 18) на ім'я учасника
+        name_val = str(row.iloc[18]).strip() if len(row) > 18 and pd.notna(row.iloc[18]) else ""
+        if not name_val or name_val.lower() in ["nan", "who", "total group (1)"]:
+            continue
+
+        def parse_float(val):
+            if pd.isna(val):
+                return 0.0
+            try:
+                cleaned = str(val).replace(" ", "").replace(",", ".")
+                return float(cleaned)
+            except (ValueError, TypeError):
+                return 0.0
+
+        net_balance = parse_float(row.iloc[19]) if len(row) > 19 else 0.0
+        spent_on_epics = parse_float(row.iloc[20]) if len(row) > 20 else 0.0
+        all_points = parse_float(row.iloc[22]) if len(row) > 22 else 0.0
+
+        epics_raw = str(row.iloc[21]).strip() if len(row) > 21 and pd.notna(row.iloc[21]) else ""
+        epics_received = []
+
+        if epics_raw and epics_raw.lower() != "nan":
+            epic_names = [e.strip() for e in re.split(r'[\r\n]+|,', epics_raw) if e.strip() and e.strip().lower() != "nan"]
+            for e_name in epic_names:
+                epics_received.append({"epic_name": e_name})
+
+        balance_data.append({
+            "name": name_val,
+            "net_balance": net_balance,
+            "spent_on_epics": spent_on_epics,
+            "all_points": all_points,
+            "epics_received": epics_received
+        })
+
+    return balance_data
+
 def process_epic_share_data(member_names):
     """
     Process Epic Share spreadsheet structure:
@@ -35,8 +96,7 @@ def process_epic_share_data(member_names):
     - Starts from row index 1.
     """
     df = fetch_csv_data(IG_EPIC_SHARE)
-    print('df', df)
-    # Initialize structures
+
     epic_history = []
     member_epic_counts = {name: [] for name in member_names}
     member_epic_totals = {name: 0 for name in member_names}
@@ -53,16 +113,12 @@ def process_epic_share_data(member_names):
         epic_name = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
         member_name = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
 
-        # Skip empty or summary rows
         if not date_str or date_str.lower() == "nan" or not epic_name or epic_name.lower() == "nan":
             continue
         if not member_name or member_name.lower() == "nan":
             continue
 
-        # Date validation check
         parsed_date = pd.to_datetime(date_str, format="%d/%m/%y", errors="coerce")
-        if pd.isna(date_str) or not date_pattern.match(date_str):
-            pass
 
         epic_item = {
             "date": date_str,
@@ -73,7 +129,6 @@ def process_epic_share_data(member_names):
         }
         epic_history.append(epic_item)
 
-        # Match with valid member names case-insensitively
         matched_member = next((m for m in member_names if m.lower() == member_name.lower()), None)
         if matched_member:
             member_epic_totals[matched_member] += 1
@@ -96,13 +151,10 @@ def process_epic_share_data(member_names):
     return cleaned_epic_history, member_epic_counts, member_epic_totals
 
 def process_cp_analytics(days_filter=None):
-    """
-    Process CP analytics based on Tab 2 spreadsheet structure:
-    - Row 0 (index 0): Headers (Col A: Ally Action, Col B: Date, Col C: Window, Col D: Points, Col E: Dominator, Col F-P: Member names)
-    - Strictly restricts members to columns F through P (indices 5 to 15 max), ignoring anything beyond like 'Driver'.
-    - Calculates Dominator events percentage.
-    """
     df = fetch_csv_data(CP_SHEET_TAB2_URL)
+
+    epics_balance_data = process_epics_balance_data()
+
     if df.empty or df.shape[0] < 2:
         return {
             "members": [],
@@ -110,10 +162,10 @@ def process_cp_analytics(days_filter=None):
             "points_history": [],
             "event_performance": [],
             "epic_history": [],
+            "epics_balance": epics_balance_data,
             "summary": {}
         }
 
-    # 1. Extract member names from row index 0, strictly from columns F to P (indices 5 to 15), ignoring winson, ansol, maniactom
     header_row = df.iloc[0]
     member_cols = []
     member_names = []
@@ -130,10 +182,8 @@ def process_cp_analytics(days_filter=None):
             member_names.append(clean_name)
             member_cols.append(col_idx)
 
-    # Fetch and process Epic Share data mapped to active members
     epic_history, member_epic_counts, member_epic_totals = process_epic_share_data(member_names)
 
-    # 2. Process event rows (starting from index 1)
     raw_events = []
     date_pattern = re.compile(r'^\d{1,2}/\d{2}/\d{2}$', re.IGNORECASE)
 
@@ -204,7 +254,8 @@ def process_cp_analytics(days_filter=None):
             "event_performance": [],
             "points_history": [],
             "members_analytics": [],
-            "epic_history": epic_history
+            "epic_history": epic_history,
+            "epics_balance": epics_balance_data
         }
 
     dominator_events_count = sum(1 for e in valid_events if e["is_dominator"])
@@ -224,7 +275,6 @@ def process_cp_analytics(days_filter=None):
 
     for idx, event in enumerate(valid_events):
         event_label = f"{event['action']} ({event['date']})"
-
         is_full_party = event['points'] >= 9
 
         if is_full_party:
@@ -307,7 +357,8 @@ def process_cp_analytics(days_filter=None):
         "timeline": timeline,
         "event_performance": event_performance,
         "points_history": points_history_map,
-        "epic_history": epic_history
+        "epic_history": epic_history,
+        "epics_balance": epics_balance_data
     }
 
 @router.get("/cp-stats")
