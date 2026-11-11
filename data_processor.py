@@ -220,10 +220,10 @@ def get_clan_timeline_data():
         cp_exclusions = ignore_list.union(inactive_list)
 
         # 1. CP Names
-        cp_names = df.iloc[3, 5:33].tolist()
+        cp_names = df.iloc[3, 5:48].tolist()
 
         # 2. Current CP Points
-        cp_points_raw = df.iloc[2, 5:33].tolist()
+        cp_points_raw = df.iloc[2, 5:48].tolist()
 
         current_cp_snapshot = []
         for name, pts in zip(cp_names, cp_points_raw):
