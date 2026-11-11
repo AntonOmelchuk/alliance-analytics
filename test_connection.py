@@ -17,9 +17,9 @@ else:
     df = get_data_from_csv()
     points = process_cp_points(df)
 
-    print("--- СТАДИСТИКА ПО CP ---")
+    print("--- CP Statistics ---")
     for cp, pts in points.items():
-        print(f"{cp}: {pts} балів")
+        print(f"{cp}: {pts} points")
 
     if not df.empty:
         print(f"🎉 Success! Data loaded. Rows: {len(df)}")

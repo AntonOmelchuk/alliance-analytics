@@ -20,7 +20,7 @@ public_bytes = public_key.public_bytes(
 vapid_private_key = base64.urlsafe_b64encode(private_bytes).decode('utf-8').rstrip('=')
 vapid_public_key = base64.urlsafe_b64encode(public_bytes).decode('utf-8').rstrip('=')
 
-print("\n=== ВСТАВ ЦІ КЛЮЧІ В .env ===\n")
+print("\n===ADD THESE KEYS TO .env ===\n")
 print(f'VAPID_PUBLIC_KEY="{vapid_public_key}"')
 print(f'VAPID_PRIVATE_KEY="{vapid_private_key}"')
 print("\n===============================\n")

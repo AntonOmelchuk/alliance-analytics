@@ -192,8 +192,10 @@ def analyze_clan_data(df):
     avg_points = float(df_subset['points'].mean()) if not df_subset.empty else 0
     top_cp_name = pareto_list[0]["cp_name"] if pareto_list else "N/A"
 
+    filtered_pareto_list = list(filter(lambda cp: cp['points'] > 0, pareto_list))
+
     return {
-        "pareto": pareto_list,
+        "pareto": filtered_pareto_list,
         "summary": {
             "total_points": int(total),
             "average_points": round(avg_points, 2),
@@ -236,10 +238,12 @@ def get_clan_timeline_data():
                     clean_pts = int(float(str(pts).replace(",", "")))
                 except (ValueError, TypeError):
                     clean_pts = 0
-                current_cp_snapshot.append({
-                    "cp_name": clean_name,
-                    "points": clean_pts
-                })
+
+                if clean_pts > 0:
+                    current_cp_snapshot.append({
+                        "cp_name": clean_name,
+                        "points": clean_pts
+                    })
 
         # 3. History by events
         history_slice = df.iloc[4:].copy()
